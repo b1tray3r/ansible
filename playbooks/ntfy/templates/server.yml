@@ -1,0 +1,5 @@
+---
+auth-file: "/var/lib/ntfy/auth.db"
+auth-default-access: "deny-all"
+auth-users:
+  - "{{ NTFY_ABORGARDT_USER }}:{{ NTFY_ABORGARDT_PASSWORD_HASH }}:admin"

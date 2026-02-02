@@ -1,0 +1,48 @@
+homeserver:
+    address: http://matrix_synapse:8008
+    domain: {{ matrix_server_name }}
+    software: standard
+
+appservice:
+    address: http://mautrix-discord:29334
+    hostname: 0.0.0.0
+    port: 29334
+    id: discord
+    bot:
+        username: discordbot
+        displayname: Discord bridge bot
+        avatar: mxc://maunium.net/nIdEykemnwdisvHIMZzmQNAt
+    database:
+        type: postgres
+        uri: postgres://{{ matrix_postgres_user }}:{{ matrix_postgres_password }}@matrix_postgres/{{ matrix_discord_db_name }}?sslmode=disable
+    as_token: ""
+    hs_token: ""
+    ephemeral_events: true
+    async_transactions: false
+
+bridge:
+    username_template: "discord_{% raw %}{{.}}{% endraw %}"
+    displayname_template: "{% raw %}{{or .GlobalName .Username}}{{if .Bot}} (bot){{end}}{% endraw %}"
+    channel_name_template: "{% raw %}{{.Name}}{% endraw %}"
+    private_chat_portal_meta: default
+    portal_message_buffer: 128
+    personal_filtering_spaces: true
+    bridge_notices: true
+    delivery_receipts: false
+    message_status_events: false
+    message_error_notices: true
+    encryption:
+        allow: false
+        default: false
+        require: false
+    permissions:
+        "*": relay
+        "{{ matrix_server_name }}": user
+    relay:
+        enabled: false
+
+logging:
+    min_level: warn
+    writers:
+    - type: stdout
+      format: pretty-colored

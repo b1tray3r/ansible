@@ -1,0 +1,32 @@
+---
+- name: Install Bruno Community Edition
+  hosts: workstation_group
+  become: true
+  tasks:
+    - name: Resolve target version
+      include_tasks: utils/resolveReleaseVersion.yml
+      vars:
+        requested_version: "{{ bruno_version }}"
+        release_repo_owner: "usebruno"
+        release_repo_name: "bruno"
+
+    - name: Determine update requirement
+      include_tasks: utils/dpkgNeedsUpdate.yml
+      vars:
+        dpkg_package_name: "bruno"
+        dpkg_target_version: "{{ target_version }}"
+
+    - name: Install or update Bruno
+      block:
+        - name: Download package
+          ansible.builtin.get_url:
+            url: "{{ bruno_github_release_url }}/{{ effective_release_version }}/Bruno_{{ target_version }}_amd64_linux.deb"
+            dest: "/tmp/Bruno_{{ target_version }}_amd64_linux.deb"
+            force: true
+          changed_when: false
+
+        - name: Install from downloaded file
+          include_tasks: utils/installFromFile.yml
+          vars:
+            download_target_file: "/tmp/Bruno_{{ target_version }}_amd64_linux.deb"
+      when: needs_update

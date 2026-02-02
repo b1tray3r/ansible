@@ -1,0 +1,42 @@
+---
+- name: Validate file extension
+  ansible.builtin.assert:
+    that:
+      - download_target_file.endswith('.deb')
+        or download_target_file.endswith('.tar.gz')
+        or download_target_file.endswith('.tgz')
+        or download_target_file.endswith('.tar.xz')
+        or download_target_file.endswith('.zip')
+    fail_msg: "Unsupported install file extension: {{ download_target_file }}"
+
+- name: Install .deb file
+  ansible.builtin.apt:
+    deb: "{{ download_target_file }}"
+    state: present
+  when: download_target_file.endswith('.deb')
+
+- name: Install .tar.gz or .tgz file
+  ansible.builtin.command: tar -xzf {{ download_target_file }} -C {{ install_path }}
+  when:
+    - download_target_file.endswith('.tar.gz')
+      or download_target_file.endswith('.tgz')
+
+- name: Install .tar.xz file
+  ansible.builtin.command: tar -xJf {{ download_target_file }} -C {{ install_path }}
+  when:
+    - download_target_file.endswith('.tar.xz')
+
+- name: Install .zip file
+  ansible.builtin.unarchive:
+    src: "{{ download_target_file }}"
+    dest: "{{ install_path }}"
+    remote_src: true
+    mode: "0755"
+  when:
+    - download_target_file.endswith('.zip')
+
+- name: Clean up downloaded file
+  ansible.builtin.file:
+    path: "{{ download_target_file }}"
+    state: absent
+  changed_when: false

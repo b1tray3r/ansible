@@ -1,0 +1,235 @@
+---
+
+- name: Harden Linux system
+  hosts: harden_group
+  become: true
+
+  handlers:
+    - name: restart ssh
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
+    - name: restart ufw
+      ansible.builtin.service:
+        name: ufw
+        state: restarted
+    - name: restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted
+
+  tasks:
+    - name: Handle firewall with UFW
+      block:
+        - name: Install UFW package
+          ansible.builtin.apt:
+            name: ufw
+            state: present
+            update_cache: yes
+
+        - name: Allow Docker container traffic forwarding through UFW
+          ansible.builtin.lineinfile:
+            path: /etc/default/ufw
+            regexp: '^DEFAULT_FORWARD_POLICY='
+            line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
+          notify: restart ufw
+
+        - name: Set default UFW policies
+          ansible.builtin.ufw:
+            state: enabled
+            policy: deny
+            direction: incoming
+          notify: restart ufw
+
+        - name: Allow outgoing traffic by default
+          ansible.builtin.ufw:
+            state: enabled
+            policy: allow
+            direction: outgoing
+          notify: restart ufw
+
+        - name: Allow SSH connections
+          ansible.builtin.ufw:
+            state: enabled
+            rule: allow
+            name: OpenSSH
+          notify: restart ufw
+
+        - name: Allow HTTP traffic
+          ansible.builtin.ufw:
+            state: enabled
+            rule: allow
+            port: 80
+            proto: tcp
+          notify: restart ufw
+
+        - name: Allow HTTPS traffic
+          ansible.builtin.ufw:
+            state: enabled
+            rule: allow
+            port: 443
+            proto: tcp
+          notify: restart ufw
+
+        - name: Allow Docker swarm management port
+          ansible.builtin.ufw:
+            state: enabled
+            rule: allow
+            port: 2377
+            proto: tcp
+          notify: restart ufw
+
+        - name: Allow Docker Swarm overlay networking ports
+          ansible.builtin.ufw:
+            state: enabled
+            rule: allow
+            port: "{{ item.port }}"
+            proto: "{{ item.proto }}"
+          loop:
+            - { port: '7946', proto: 'tcp' }
+            - { port: '7946', proto: 'udp' }
+            - { port: '4789', proto: 'udp' }
+          when: inventory_hostname in (groups['swarm_manager_group'] + groups['swarm_worker_group'])
+          notify: restart ufw
+
+        - name: Install fail2ban package
+          ansible.builtin.apt:
+            name: fail2ban
+            state: present
+            update_cache: yes
+
+        - name: Configure fail2ban to protect SSH
+          ansible.builtin.copy:
+            dest: /etc/fail2ban/jail.local
+            content: |
+              [sshd]
+              enabled = true
+              port = ssh
+              filter = sshd
+              logpath = /var/log/auth.log
+              maxretry = 5
+              bantime = 3600
+            mode: '0644'
+            owner: root
+            group: root
+          notify: restart fail2ban
+
+        # sudo fail2ban-client status sshd
+
+    - name: Handle SSH hardening
+      block:
+        - name: Allow root login only with SSH keys
+          ansible.builtin.lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: '^#?PermitRootLogin'
+            line: 'PermitRootLogin prohibit-password'
+            state: present
+            backup: yes
+          notify: restart ssh
+
+        - name: Disable password authentication for SSH
+          ansible.builtin.lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: '^#?PasswordAuthentication'
+            line: 'PasswordAuthentication no'
+            state: present
+            backup: yes
+          notify: restart ssh
+
+        - name: Ensure public key authentication is enabled
+          ansible.builtin.lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: '^#?PubkeyAuthentication'
+            line: 'PubkeyAuthentication yes'
+            state: present
+            backup: yes
+          notify: restart ssh
+
+    - name: Handle unattended-upgrades for automatic security updates
+      block:
+        - name: Install unattended-upgrades package
+          ansible.builtin.apt:
+            name:
+              - unattended-upgrades
+              - apt-listchanges
+            state: present
+            update_cache: yes
+
+        - name: Enable unattended-upgrades
+          ansible.builtin.debconf:
+            name: unattended-upgrades
+            question: unattended-upgrades/enable_auto_updates
+            value: "true"
+            vtype: boolean
+
+        - name: Configure APT to auto-update package lists and install security upgrades
+          ansible.builtin.copy:
+            dest: /etc/apt/apt.conf.d/20auto-upgrades
+            content: |
+              APT::Periodic::Update-Package-Lists "1";
+              APT::Periodic::Unattended-Upgrade "1";
+            mode: '0644'
+            owner: root
+            group: root
+
+        - name: Configure unattended-upgrades to apply only security updates and reboot at 3 AM
+          ansible.builtin.copy:
+            dest: /etc/apt/apt.conf.d/50unattended-upgrades
+            content: |
+              Unattended-Upgrade::Allowed-Origins {
+                  "${distro_id}:${distro_codename}-security";
+              };
+              Unattended-Upgrade::Package-Blacklist {};
+              Unattended-Upgrade::Automatic-Reboot "true";
+              Unattended-Upgrade::Automatic-Reboot-Time "03:00";
+            mode: '0644'
+            owner: root
+            group: root
+
+        - name: Handle kernel hardening
+          block:
+            - name: Disable core dumps for security hardening
+              ansible.builtin.copy:
+                dest: /etc/security/limits.d/nocoredumps.conf
+                content: |
+                  * hard core 0
+                mode: '0644'
+                owner: root
+                group: root
+              
+            - name: Ensure core dumps are disabled on boot
+              ansible.builtin.copy:
+                dest: /etc/sysctl.d/99-disable-coredumps.conf
+                content: |
+                  fs.suid_dumpable = 0
+                mode: '0644'
+                owner: root
+                group: root
+              notify: restart ssh
+
+            - name: Disable kernel pointer leaks in logs for security hardening
+              ansible.builtin.copy:
+                dest: /etc/sysctl.d/99-kernel-pointer-leaks.conf
+                content: |
+                  kernel.kptr_restrict = 2
+                mode: '0644'
+                owner: root
+                group: root
+              notify: restart ssh
+
+            - name: Harden kernel parameters
+              ansible.builtin.sysctl:
+                name: "{{ item.name }}"
+                value: "{{ item.value }}"
+                state: present
+                reload: yes
+              loop:
+                - { name: 'net.ipv4.ip_forward', value: '1' }
+                - { name: 'net.ipv4.conf.all.send_redirects', value: '0' }
+                - { name: 'net.ipv4.conf.default.send_redirects', value: '0' }
+                - { name: 'net.ipv4.conf.all.accept_source_route', value: '0' }
+                - { name: 'net.ipv4.conf.default.accept_source_route', value: '0' }
+                - { name: 'net.ipv4.conf.all.accept_redirects', value: '0' }
+                - { name: 'net.ipv4.conf.default.accept_redirects', value: '0' }
+                - { name: 'net.ipv4.conf.all.secure_redirects', value: '0' }
+                - { name: 'net.ipv4.conf.default.secure_redirects', value: '0' }

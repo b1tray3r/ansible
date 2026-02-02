@@ -1,0 +1,184 @@
+services:
+  redis:
+    image: redis:7-alpine
+    networks:
+      - internal
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.paperless == active
+
+  db:
+    image: postgres:15
+    volumes:
+      - paperless_db:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=paperless
+      - POSTGRES_USER_FILE=/run/secrets/paperless_db_user
+      - POSTGRES_PASSWORD_FILE=/run/secrets/paperless_db_password
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    command: >
+      bash -c 'echo "host all all 10.0.0.0/8 trust" >> /var/lib/postgresql/data/pg_hba.conf
+      && echo "host all all 0.0.0.0/0 scram-sha-256" >> /var/lib/postgresql/data/pg_hba.conf
+      && docker-entrypoint.sh postgres'
+    secrets:
+      - source: paperless_db_user_{{ paperless_db_user_hash }}
+        target: paperless_db_user
+      - source: paperless_db_password_{{ paperless_db_password_hash }}
+        target: paperless_db_password
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/paperless_db_user)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.paperless == active
+
+  webserver:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - paperless_data:/usr/src/paperless/data
+      - paperless_media:/usr/src/paperless/media
+      - paperless_export:/usr/src/paperless/export
+      - paperless_consume:/usr/src/paperless/consume
+      - "{{ PAPERLESS_DATA_PATH }}/secrets/paperless_env:/etc/paperless_env:ro"
+    environment:
+      - PAPERLESS_REDIS=redis://redis:6379
+      - PAPERLESS_DBHOST=db
+      - PAPERLESS_DBNAME=paperless
+      - PAPERLESS_DBUSER_FILE=/run/secrets/paperless_db_user
+      - PAPERLESS_DBPASS_FILE=/run/secrets/paperless_db_password
+      - PAPERLESS_SECRET_KEY_FILE=/run/secrets/paperless_secret_key
+      - PAPERLESS_OCR_LANGUAGE=deu+eng
+      - PAPERLESS_TIME_ZONE=Europe/Berlin
+      - PAPERLESS_CSRF_TRUSTED_ORIGINS=https://{{ PAPERLESS_DOMAIN }}
+      - PAPERLESS_OCR_ROTATE_PAGES=true
+      - PAPERLESS_CONSUMER_DELETE_DUPLICATES=true
+      - PAPERLESS_EXPORT_FOLDER=/usr/src/paperless/export
+    secrets:
+      - source: paperless_db_user_{{ paperless_db_user_hash }}
+        target: paperless_db_user
+      - source: paperless_db_password_{{ paperless_db_password_hash }}
+        target: paperless_db_password
+      - source: paperless_secret_key_{{ paperless_secret_key_hash }}
+        target: paperless_secret_key
+    networks:
+      - proxy
+      - internal
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.labels.paperless == active
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=proxy"
+        - "traefik.http.routers.paperless.entrypoints=websecure"
+        - "traefik.http.routers.paperless.rule=Host(`{{ PAPERLESS_DOMAIN }}`)"
+        - "traefik.http.routers.paperless.tls.certresolver=letsencrypt"
+        - "traefik.http.services.paperless.loadbalancer.server.port=8000"
+
+  # exporter:
+  #   image: ghcr.io/paperless-ngx/paperless-ngx:latest
+  #   entrypoint: ["/bin/sh", "/export.sh"]
+  #   volumes:
+  #     - paperless_export:/usr/src/paperless/export
+  #     - paperless_media:/usr/src/paperless/media
+  #   configs:
+  #     - source: paperless_export_script_{{ paperless_export_script_hash }}
+  #       target: /export.sh
+  #       mode: 0555
+  #   environment:
+  #     - PAPERLESS_REDIS=redis://redis:6379
+  #     - PAPERLESS_DBHOST=db
+  #     - PAPERLESS_DBNAME=paperless
+  #     - PAPERLESS_DBUSER_FILE=/run/secrets/paperless_db_user
+  #     - PAPERLESS_DBPASS_FILE=/run/secrets/paperless_db_password
+  #   secrets:
+  #     - source: paperless_db_user_{{ paperless_db_user_hash }}
+  #       target: paperless_db_user
+  #     - source: paperless_db_password_{{ paperless_db_password_hash }}
+  #       target: paperless_db_password
+  #   networks:
+  #     - internal
+  #   depends_on:
+  #     - db
+  #     - redis
+  #   deploy:
+  #     mode: replicated
+  #     replicas: 1
+  #     placement:
+  #       constraints:
+  #         - node.labels.paperless == active
+  #     restart_policy:
+  #       condition: on-failure
+  #       delay: 60s
+  #       max_attempts: 3
+
+  # rclone:
+  #   image: rclone/rclone:latest
+  #   entrypoint: ["/bin/sh", "/rclone.sh"]
+  #   volumes:
+  #     - paperless_export:/data/export
+  #   configs:
+  #     - source: paperless_rclone_script_{{ rclone_script_hash }}
+  #       target: /rclone.sh
+  #       mode: 0555
+  #   secrets:
+  #     - source: rclone_config_{{ rclone_config_hash }}
+  #       target: /config/rclone.conf
+  #   networks:
+  #     - internal
+  #   deploy:
+  #     mode: replicated
+  #     replicas: 1
+  #     placement:
+  #       constraints:
+  #         - node.labels.paperless == active
+  #     restart_policy:
+  #       condition: on-failure
+
+volumes:
+  paperless_data:
+  paperless_media:
+  paperless_export:
+  paperless_consume:
+  paperless_db:
+
+networks:
+  proxy:
+    external: true
+  internal:
+    driver: overlay
+
+secrets:
+  paperless_db_user_{{ paperless_db_user_hash }}:
+    file: "{{ PAPERLESS_DATA_PATH }}/secrets/paperless_db_user.txt"
+  paperless_db_password_{{ paperless_db_password_hash }}:
+    file: "{{ PAPERLESS_DATA_PATH }}/secrets/paperless_db_password.txt"
+  paperless_secret_key_{{ paperless_secret_key_hash }}:
+    file: "{{ PAPERLESS_DATA_PATH }}/secrets/paperless_secret_key.txt"
+  rclone_config_{{ rclone_config_hash }}:
+    file: "{{ PAPERLESS_DATA_PATH }}/secrets/rclone.conf"
+
+configs:
+  paperless_rclone_script_{{ rclone_script_hash }}:
+    file: "{{ PAPERLESS_DATA_PATH }}/secrets/rclone.sh"
+  paperless_export_script_{{ paperless_export_script_hash }}:
+    file: "{{ PAPERLESS_DATA_PATH }}/secrets/export.sh"

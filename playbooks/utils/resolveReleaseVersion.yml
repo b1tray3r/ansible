@@ -1,0 +1,15 @@
+---
+- name: Resolve latest release version
+  include_tasks: getGitRelease.yml
+  vars:
+    repo_owner: "{{ release_repo_owner }}"
+    repo_name: "{{ release_repo_name }}"
+  when: requested_version == "latest"
+
+- name: Set effective release version
+  ansible.builtin.set_fact:
+    effective_release_version: "{{ release_version if requested_version == 'latest' else requested_version }}"
+
+- name: Normalize target version
+  ansible.builtin.set_fact:
+    target_version: "{{ effective_release_version | regex_replace('^v', '') }}"

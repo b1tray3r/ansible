@@ -1,0 +1,36 @@
+---
+
+- hosts: swarm_worker_group
+  tasks:
+    - name: Create required folders
+      when: "'forgejo-runner' in SWARM_NODE_LABELS"
+      ansible.builtin.file:
+        path: "{{ FORGEJO_RUNNER_PATH }}/data/.cache"
+        mode: "2775"
+        recurse: yes
+        state: directory
+        owner: "1000"
+        group: "1000"
+
+    - name: Create the .runner file
+      when: "'forgejo-runner' in SWARM_NODE_LABELS"
+      ansible.builtin.file:
+        path: "{{ FORGEJO_RUNNER_PATH }}/data/.runner"
+        state: touch
+        mode: "2775"
+        owner: "1000"
+        group: "1000"
+
+    - name: Copy the compose file
+      when: "'forgejo-runner' in SWARM_NODE_LABELS"
+      ansible.builtin.template:
+        src: "templates/compose.yml"
+        dest: "{{ FORGEJO_RUNNER_PATH }}/compose.yml"
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Stack forgejo-runner
+      community.docker.docker_compose_v2:
+        state: present
+        project_src: "{{ FORGEJO_RUNNER_PATH }}"

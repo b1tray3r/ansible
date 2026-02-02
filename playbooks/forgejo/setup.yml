@@ -1,0 +1,303 @@
+---
+
+- hosts: forgejo_group
+  remote_user: root
+  tasks:
+    # ========================================
+    # User & System Setup
+    # ========================================
+    - name: Setup git user for SSH passthrough
+      block:
+        - name: Create git user
+          ansible.builtin.user:
+            name: git
+            comment: "Git Version Control"
+            shell: /bin/bash
+            createhome: yes
+            home: /home/git
+            system: no
+            groups: docker
+            append: yes
+
+        - name: Ensure git user .ssh directory exists
+          ansible.builtin.file:
+            path: /home/git/.ssh
+            state: directory
+            owner: git
+            group: git
+            mode: "0700"
+
+    # ========================================
+    # Directory Structure
+    # ========================================
+    - name: Create directory structure
+      block:
+        - name: Ensure forgejo root folder exists
+          ansible.builtin.file:
+            path: "{{ FORGEJO_DATA_PATH }}"
+            state: directory
+            mode: "0750"
+
+        - name: Ensure forgejo data folder exists
+          ansible.builtin.file:
+            path: "{{ FORGEJO_DATA_PATH }}/forgejo"
+            state: directory
+            mode: "0750"
+            owner: "1000"
+            group: "1000"
+
+        - name: Ensure forgejo .ssh folder exists
+          ansible.builtin.file:
+            path: "{{ FORGEJO_DATA_PATH }}/forgejo/.ssh"
+            state: directory
+            owner: "1000"
+            group: "1000"
+            mode: "0700"
+
+        - name: Ensure mysql data folder exists
+          ansible.builtin.file:
+            path: "{{ FORGEJO_DATA_PATH }}/mysql"
+            state: directory
+            mode: "0750"
+
+    # ========================================
+    # VPN Preparation
+    # ========================================
+    - name: Prepare OpenVPN configuration
+      block:
+        - name: Create OpenVPN env file
+          ansible.builtin.copy:
+            content: |
+              # OpenVPN environment variables
+              USERNAME={{ VPN_USERNAME | default('') }}
+              PASSWORD={{ VPN_PASSWORD | default('') }}
+              PRIVATE_KEY_PASSWORD={{ VPN_PRIVATE_KEY_PASSWORD | default('') }}
+              TOTP_SECRET={{ VPN_TOTP_SECRET | default('') }}
+              DNS={{ VPN_DNS | default('') }}
+            dest: "{{ FORGEJO_DATA_PATH }}/openvpn3.env"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Create OpenVPN config file placeholder
+          ansible.builtin.file:
+            path: "{{ FORGEJO_DATA_PATH }}/config.ovpn"
+            state: touch
+            owner: root
+            group: root
+            mode: "0644"
+
+    # ========================================
+    # Stack Deployment
+    # ========================================
+    - name: Deploy Forgejo stack
+      block:
+        - name: Ensure proxy network exists
+          community.docker.docker_network:
+            name: proxy
+            driver: bridge
+            attachable: true
+            state: present
+
+        - name: Ensure gitea conf directory exists
+          ansible.builtin.file:
+            path: "{{ FORGEJO_DATA_PATH }}/forgejo/gitea/conf"
+            state: directory
+            owner: "1000"
+            group: "1000"
+            mode: "0755"
+
+        - name: Deploy app.ini configuration
+          ansible.builtin.template:
+            src: "templates/app.ini.j2"
+            dest: "{{ FORGEJO_DATA_PATH }}/forgejo/gitea/conf/app.ini"
+            owner: "1000"
+            group: "1000"
+            mode: "0644"
+          notify: Restart forgejo stack
+
+        - name: Copy compose template
+          ansible.builtin.template:
+            src: "templates/compose.yml"
+            dest: "{{ FORGEJO_DATA_PATH }}/compose.yml"
+            owner: root
+            group: root
+            mode: 0644
+
+        - name: Remove existing forgejo stack
+          community.docker.docker_compose_v2:
+            project_src: "{{ FORGEJO_DATA_PATH }}"
+            project_name: forgejo
+            state: absent
+
+        - name: Wait for stack to stop
+          ansible.builtin.pause:
+            seconds: 10
+
+        - name: Start forgejo stack
+          community.docker.docker_compose_v2:
+            project_name: forgejo
+            project_src: "{{ FORGEJO_DATA_PATH }}"
+            state: present
+
+    # ========================================
+    # Database Initialization
+    # ========================================
+    - name: Initialize Forgejo database
+      block:
+        - name: Set forgejo container name
+          ansible.builtin.set_fact:
+            forgejo_container: "forgejo_forgejo"
+
+        - name: Check if already initialized
+          ansible.builtin.stat:
+            path: "{{ FORGEJO_DATA_PATH }}/forgejo/.initialized"
+          register: init_check
+
+        - name: Run database migration
+          when:
+            - forgejo_container is defined
+            - not init_check.stat.exists
+          block:
+            - name: Wait for database hostname to resolve
+              community.docker.docker_container_exec:
+                container: "{{ forgejo_container }}"
+                command: "/bin/sh -c 'getent hosts db || nslookup db || ping -c 1 db'"
+              register: db_resolve_result
+              until: db_resolve_result.rc == 0
+              retries: 30
+              delay: 2
+
+            - name: Wait for database port to be accessible
+              community.docker.docker_container_exec:
+                container: "{{ forgejo_container }}"
+                command: "/bin/sh -c 'timeout 5 bash -c \"</dev/tcp/db/3306\" 2>/dev/null || nc -zv db 3306 2>&1 || telnet db 3306 2>&1 | grep -q Connected'"
+              register: db_port_result
+              until: db_port_result.rc == 0
+              retries: 30
+              delay: 2
+              ignore_errors: yes
+
+            - name: Run gitea migrate
+              community.docker.docker_container_exec:
+                container: "{{ forgejo_container }}"
+                command: "gitea migrate"
+              register: migrate_result
+              failed_when: migrate_result.rc != 0 and 'already initialized' not in migrate_result.stderr
+
+            - name: Wait for database to be ready
+              community.docker.docker_container_exec:
+                container: "{{ forgejo_container }}"
+                command: "gitea admin user list"
+              register: db_ready_result
+              until: db_ready_result.rc == 0
+              retries: 30
+              delay: 2
+
+            - name: Check if admin user exists
+              community.docker.docker_container_exec:
+                container: "{{ forgejo_container }}"
+                command: "gitea admin user list --admin"
+              register: admin_check
+              changed_when: false
+
+            - name: Create admin user
+              when: "FORGEJO_ADMIN_USERNAME | default('admin') not in admin_check.stdout"
+              community.docker.docker_container_exec:
+                container: "{{ forgejo_container }}"
+                command: "gitea admin user create --admin --username {{ FORGEJO_ADMIN_USERNAME | default('admin') }} --password {{ FORGEJO_ADMIN_PASSWORD | default('changeme') }} --email {{ FORGEJO_ADMIN_EMAIL | default('admin@borgardt.me') }} --must-change-password=false"
+
+            - name: Create initialization marker
+              ansible.builtin.file:
+                path: "{{ FORGEJO_DATA_PATH }}/forgejo/.initialized"
+                state: touch
+                mode: "0644"
+      rescue:
+        - name: Log initialization failure
+          ansible.builtin.debug:
+            msg: "Forgejo initialization failed - container may not be ready yet"
+
+    # ========================================
+    # SSH Configuration
+    # ========================================
+    - name: Configure SSH passthrough
+      block:
+        - name: Create gitea wrapper script
+          ansible.builtin.copy:
+            content: |
+              #!/bin/sh
+              # Gitea SSH passthrough wrapper
+              # Find the running Forgejo container
+              CONTAINER=$(docker ps --filter "name=forgejo_forgejo" --format "{% raw %}{{.Names}}{% endraw %}" | head -1)
+
+              if [ -z "$CONTAINER" ]; then
+                echo "Error: Forgejo container not running" >&2
+                exit 1
+              fi
+
+              # Pass through SSH_ORIGINAL_COMMAND to the container
+              exec docker exec -i \
+                -u git \
+                -e SSH_ORIGINAL_COMMAND="$SSH_ORIGINAL_COMMAND" \
+                "$CONTAINER" \
+                /usr/local/bin/gitea "$@"
+            dest: /usr/local/bin/gitea
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Create symlink for authorized_keys compatibility
+          ansible.builtin.file:
+            src: /usr/local/bin/gitea
+            dest: /usr/bin/gitea
+            state: link
+            force: yes
+
+        - name: Create authorized_keys sync script
+          ansible.builtin.copy:
+            content: |
+              #!/bin/bash
+              # Sync authorized_keys from Forgejo data to git user home
+              SOURCE="{{ FORGEJO_DATA_PATH }}/forgejo/.ssh/authorized_keys"
+              DEST="/home/git/.ssh/authorized_keys"
+              
+              if [ -f "$SOURCE" ]; then
+                cp "$SOURCE" "$DEST"
+                chown git:git "$DEST"
+                chmod 600 "$DEST"
+              fi
+            dest: /usr/local/bin/sync-forgejo-keys
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Create cron job for SSH key synchronization
+          ansible.builtin.cron:
+            name: "Sync Forgejo SSH keys"
+            minute: "*/5"
+            job: "/usr/local/bin/sync-forgejo-keys"
+            user: root
+
+        - name: Regenerate SSH keys from database
+          when: forgejo_container is defined
+          block:
+            - name: Wait for Forgejo to be healthy
+              ansible.builtin.pause:
+                seconds: 20
+
+            - name: Regenerate authorized_keys from database
+              ansible.builtin.shell: |
+                docker exec -u git {{ forgejo_container }} /usr/local/bin/gitea admin regenerate keys
+              changed_when: true
+              ignore_errors: yes
+
+            - name: Run initial key sync
+              ansible.builtin.command: /usr/local/bin/sync-forgejo-keys
+              changed_when: false
+
+  handlers:
+    - name: Restart forgejo stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ FORGEJO_DATA_PATH }}"
+        project_name: forgejo
+        state: restarted

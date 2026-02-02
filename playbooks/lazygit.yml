@@ -1,0 +1,46 @@
+---
+- name: Install LazyGit Community Edition
+  hosts: workstation_group
+
+  tasks:
+    - name: Resolve target version
+      include_tasks: utils/resolveReleaseVersion.yml
+      vars:
+        requested_version: "{{ lazygit_version }}"
+        release_repo_owner: "jesseduffield"
+        release_repo_name: "lazygit"
+
+    - name: Get installed version
+      ansible.builtin.command: lazygit --version
+      register: lazygit_version_output
+      failed_when: false
+      changed_when: false
+
+    - name: Parse installed version
+      ansible.builtin.set_fact:
+        installed_version: "{{ (lazygit_version_output.stdout | default('') | regex_findall('version=([^,]+)') | first) | default('') }}"
+
+    - name: Determine if update is needed
+      ansible.builtin.set_fact:
+        needs_update: >-
+          {{
+            lazygit_version_output.rc != 0
+            or installed_version | length == 0
+            or (installed_version is version(target_version, '<', version_type='semver'))
+          }}
+
+    - name: Install or update LazyGit
+      block:
+        - name: Download package
+          ansible.builtin.get_url:
+            url: "{{ lazygit_github_release_url }}/{{ effective_release_version }}/lazygit_{{ target_version }}_linux_x86_64.tar.gz"
+            dest: "/tmp/lazygit_{{ target_version }}_linux_x86_64.tar.gz"
+            force: true
+          changed_when: false
+
+        - name: Install from downloaded file
+          include_tasks: utils/installFromFile.yml
+          vars:
+            download_target_file: "/tmp/lazygit_{{ target_version }}_linux_x86_64.tar.gz"
+            install_path: "{{ lazygit_install_path }}"
+      when: needs_update

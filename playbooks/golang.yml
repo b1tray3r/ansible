@@ -1,0 +1,92 @@
+---
+- name: Install Discord
+  hosts: workstation_group
+  become: true
+  tasks:
+    - name: check for latest Go version
+      ansible.builtin.uri:
+        url: https://go.dev/VERSION?m=text
+        return_content: yes
+      register: latest_go_version
+
+    - name: set latest Go version fact
+      ansible.builtin.set_fact:
+        golang_latest_version: "{{ latest_go_version.content.splitlines()[0].strip() | regex_replace('^go', '') }}"
+
+    - name: get go installation path
+      ansible.builtin.command:
+        argv:
+          - which
+          - go
+      register: go_installation_path_query
+      failed_when: false
+      changed_when: false
+
+    - name: uninstall if not my path
+      when: >
+        go_installation_path_query.rc != 0 or
+        go_installation_path_query.stdout != "/usr/local/go/bin/go"
+      block:
+        - name: remove old golang installation
+          ansible.builtin.apt:
+            name: golang
+            state: absent
+        
+        - name: remove old golang binaries
+          ansible.builtin.file:
+            path: "{{ go_installation_path_query.stdout | trim }}"
+            state: absent
+
+    - name: get the installed golang version
+      ansible.builtin.command:
+        argv:
+          - /usr/local/go/bin/go
+          - version
+      register: golang_version_query
+      failed_when: false
+      changed_when: false
+
+    - name: set fact
+      set_fact:
+        golang_installed_version: "{{ golang_version_query.stdout | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+') | default('') }}"
+
+    - name: install golang if required
+      when: >
+        golang_version_query.rc != 0 or
+        (golang_version_query.stdout | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+') | default('')) != golang_latest_version
+      block:
+        - name: remove old golang installation
+          ansible.builtin.apt:
+            name: golang
+            state: absent
+        
+        - name: remove old golang binaries
+          ansible.builtin.file:
+            path: /usr/local/go
+            state: absent
+        
+        - name: download golang tarball
+          ansible.builtin.get_url:
+            url: "https://go.dev/dl/go{{ golang_latest_version }}.linux-amd64.tar.gz"
+            dest: "/tmp/go{{ golang_latest_version }}.linux-amd64.tar.gz"
+            mode: "0644"
+            force: true
+          
+        - name: extract golang tarball
+          ansible.builtin.unarchive:
+            src: "/tmp/go{{ golang_latest_version }}.linux-amd64.tar.gz"
+            dest: /usr/local
+            remote_src: true
+            creates: /usr/local/go
+
+        - name: make sure /usr/local/go/bin is in PATH
+          ansible.builtin.lineinfile:
+            path: ~/.zshrc
+            line: 'export PATH=$PATH:/usr/local/go/bin'
+            state: present
+            create: yes
+            
+        - name: remove downloaded tarball
+          ansible.builtin.file:
+            path: "/tmp/go{{ golang_latest_version }}.linux-amd64.tar.gz"
+            state: absent

@@ -1,0 +1,96 @@
+---
+- name: Setup Traefik
+  hosts: traefik_group
+  gather_facts: true
+
+  handlers:
+    - name: restart traefik
+      community.docker.docker_compose_v2:
+        files:
+          - "{{ TRAEFIK_DATA_PATH }}/compose.yml"
+        project_name: traefik
+        project_src: "{{ TRAEFIK_DATA_PATH }}"
+        state: restarted
+      
+  tasks:
+    - name: Ensure traefik folder exists
+      ansible.builtin.file:
+        path: "{{ TRAEFIK_DATA_PATH }}"
+        state: directory
+        mode: "0750"
+
+    - name: Copy the IONOS API key to the target host
+      ansible.builtin.copy:
+        content: "{{ TRAEFIK_IONOS_API_KEY }}"
+        dest: "{{ TRAEFIK_DATA_PATH }}/.env.secret"
+        owner: root
+        group: root
+        mode: 0600
+      notify: "restart traefik"
+
+    - name: Populate the .env file for traefik
+      ansible.builtin.copy:
+        content: |
+          TZ=Europe/Berlin
+          IONOS_API_KEY={{ TRAEFIK_IONOS_API_KEY }}
+        dest: "{{ TRAEFIK_DATA_PATH }}/.env"
+        owner: root
+        group: root
+        mode: 0600
+      notify: "restart traefik"
+
+    - name: Copy configuration templates
+      ansible.builtin.template:
+        src: "{{ item }}"
+        dest: "{{ TRAEFIK_DATA_PATH }}/{{ item | basename }}"
+        owner: root
+        group: root
+        mode: 0644
+      with_items:
+        - templates/compose.yml
+        - templates/traefik.yml
+        - templates/middlewares.yml
+        - templates/routers.yml
+      notify: "restart traefik"
+
+    - name: Copy configuration files
+      ansible.builtin.copy:
+        src: "{{ item }}"
+        dest: "{{ TRAEFIK_DATA_PATH }}/{{ item | basename }}"
+        owner: root
+        group: root
+        mode: 0644
+      with_items:
+        - templates/services.yml
+      notify: "restart traefik"
+
+    - name: Ensure traefik_certs volume exists
+      community.docker.docker_volume:
+        name: traefik_certs
+        state: present
+
+    - name: Ensure proxy overlay network exists
+      community.docker.docker_network:
+        name: proxy
+        attachable: true
+        state: present
+
+    - name: Remove existing traefik stack
+      community.docker.docker_compose_v2:
+        files:
+          - "{{ TRAEFIK_DATA_PATH }}/compose.yml"
+        project_src: "{{ TRAEFIK_DATA_PATH }}"
+        project_name: traefik
+        state: absent
+
+    - name: Sleep for a few seconds to allow stack removal to complete
+      ansible.builtin.pause:
+        seconds: 5
+
+    - name: Start traefik stack
+      community.docker.docker_compose_v2:
+        files:
+          - "{{ TRAEFIK_DATA_PATH }}/compose.yml"
+        project_name: traefik
+        project_src: "{{ TRAEFIK_DATA_PATH }}"
+        state: present

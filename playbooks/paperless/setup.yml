@@ -1,0 +1,74 @@
+---
+
+- hosts: swarm_manager_group
+  remote_user: root
+  tasks:
+    - name: Ensure paperless folder exists
+      when: "'paperless' in SWARM_NODE_LABELS"
+      ansible.builtin.file:
+        path: "{{ PAPERLESS_DATA_PATH }}/secrets/"
+        state: directory
+        mode: "0750"
+
+    - name: Copy secrets to files
+      when: "'paperless' in SWARM_NODE_LABELS"
+      ansible.builtin.copy:
+        content: "{{ item.secret }}"
+        dest: "{{ PAPERLESS_DATA_PATH }}/secrets/{{ item.file }}"
+        owner: root
+        group: root
+        mode: 0600
+      with_items:
+        - { file: "paperless_db_user.txt", secret: "{{ PAPERLESS_DB_USER }}" }
+        - { file: "paperless_db_password.txt", secret: "{{ PAPERLESS_DB_PASSWORD }}" }
+        - { file: "paperless_secret_key.txt", secret: "{{ PAPERLESS_SECRET_KEY }}" }
+        - { file: "rclone.conf", secret: "{{ RCLONE_CONFIG }}" }
+        - { file: "rclone.sh", secret: "{{ RCLONE_SCRIPT }}" }
+        - { file: "export.sh", secret: "{{ PAPERLESS_EXPORT_SCRIPT }}" }
+
+    - name: Compute secret version hashes
+      when: "'paperless' in SWARM_NODE_LABELS"
+      ansible.builtin.set_fact:
+        paperless_db_user_hash: "{{ (PAPERLESS_DB_USER | hash('sha256'))[:8] }}"
+        paperless_db_password_hash: "{{ (PAPERLESS_DB_PASSWORD | hash('sha256'))[:8] }}"
+        paperless_secret_key_hash: "{{ (PAPERLESS_SECRET_KEY | hash('sha256'))[:8] }}"
+        rclone_config_hash: "{{ (RCLONE_CONFIG | hash('sha256'))[:8] }}"
+        rclone_script_hash: "{{ (RCLONE_SCRIPT | hash('sha256'))[:8] }}"
+        paperless_export_script_hash: "{{ (PAPERLESS_EXPORT_SCRIPT | hash('sha256'))[:8] }}"
+        paperless_env_hash: "{{ (PAPERLESS_FILENAME_FORMAT | hash('sha256'))[:8] }}"
+
+    - name: Copy configuration templates
+      when: "'paperless' in SWARM_NODE_LABELS"
+      ansible.builtin.template:
+        src: "compose.yml"
+        dest: "{{ PAPERLESS_DATA_PATH }}/compose.yml"
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Stack paperless
+      when: "'paperless' in SWARM_NODE_LABELS"
+      community.docker.docker_stack:
+        name: paperless
+        state: present
+        detach: true
+        compose:
+          - "{{ PAPERLESS_DATA_PATH }}/compose.yml"
+
+    - name: Scale down exporter and rclone
+      when: "'paperless' in SWARM_NODE_LABELS"
+      ansible.builtin.command:
+        cmd: "docker service scale paperless_exporter=0 paperless_rclone=0"
+      register: scale_down_result
+      failed_when: false
+      changed_when: true
+
+    - name: Notify completion
+      when: "'paperless' in SWARM_NODE_LABELS"
+      ansible.builtin.shell:
+        cmd: "curl -s --max-time 10 -u {{ NTFY_ABORGARDT_USER }}:{{ NTFY_ABORGARDT_PASSWORD }} -H 'Title: Paperless Setup Complete' -H 'Tags: white_check_mark' -d 'Paperless playbook completed successfully on {{ inventory_hostname }}' https://{{ NTFY_HOST }}/{{ NTFY_TOPIC_ANSIBLE }}"
+      register: ntfy_result
+      failed_when: false
+      changed_when: false
+      delegate_to: localhost
+      become: false

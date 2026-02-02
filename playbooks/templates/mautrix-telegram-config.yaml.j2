@@ -1,0 +1,54 @@
+homeserver:
+    address: http://matrix_synapse:8008
+    domain: {{ matrix_server_name }}
+    software: standard
+
+appservice:
+    address: http://mautrix-telegram:29317
+    hostname: 0.0.0.0
+    port: 29317
+    id: telegram
+    bot_username: telegrambot
+    bot_displayname: Telegram bridge bot
+    database: postgres://{{ matrix_postgres_user }}:{{ matrix_postgres_password }}@matrix_postgres/{{ matrix_telegram_db_name }}
+    as_token: ""
+    hs_token: ""
+    ephemeral_events: true
+
+bridge:
+    username_template: "telegram_{userid}"
+    alias_template: "telegram_{groupname}"
+    displayname_template: "{displayname} (Telegram)"
+    command_prefix: "!tg"
+    permissions:
+        "*": relaybot
+        "{{ matrix_server_name }}": full
+        "@{{ matrix_telegram_admin }}:{{ matrix_server_name }}": admin
+    relay:
+        enabled: false
+
+telegram:
+    api_id: {{ matrix_telegram_api_id }}
+    api_hash: {{ matrix_telegram_api_hash }}
+    bot_token: ""
+
+logging:
+    version: 1
+    formatters:
+        colored:
+            (): mautrix.util.logging.color.ColorFormatter
+            format: "[%(asctime)s] [%(levelname)s@%(name)s] %(message)s"
+    handlers:
+        console:
+            class: logging.StreamHandler
+            formatter: colored
+    loggers:
+        mau:
+            level: WARNING
+        telethon:
+            level: WARNING
+        aiohttp:
+            level: WARNING
+    root:
+        level: WARNING
+        handlers: [console]

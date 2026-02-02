@@ -1,0 +1,30 @@
+---
+volumes:
+  koffan-data:
+
+networks:
+  proxy:
+    external: true
+  internal:
+    driver: bridge
+
+services:
+  koffan:
+    image: {{ KOFFAN_IMAGE }}
+    container_name: koffan_server
+    restart: unless-stopped
+    volumes:
+      - koffan-data:/data
+    environment:
+      - APP_ENV=production
+      - APP_PASSWORD={{ KOFFAN_PASSWORD }}
+      - DISABLE_AUTH=false
+    networks:
+      - proxy
+      - internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.koffan.entrypoints=websecure"
+      - "traefik.http.routers.koffan.rule=Host(`{{ KOFFAN_DOMAIN }}`)"
+      - "traefik.http.routers.koffan.tls.certresolver=letsencrypt"
+      - "traefik.http.services.koffan.loadbalancer.server.port=80"

@@ -1,0 +1,539 @@
+---
+- name: Deploy Matrix (Synapse) to borgardt.me
+  hosts: matrix_group
+  become: true
+
+  handlers:
+    - name: restart synapse
+      community.docker.docker_container:
+        name: matrix_synapse
+        state: started
+        restart: yes
+
+    - name: restart discord
+      community.docker.docker_container:
+        name: mautrix-discord
+        state: started
+        restart: yes
+
+    - name: restart telegram
+      community.docker.docker_container:
+        name: mautrix-telegram
+        state: started
+        restart: yes
+
+    - name: restart dimension
+      community.docker.docker_container:
+        name: matrix_dimension
+        state: started
+        restart: yes
+
+  tasks:
+    - name: create network for matrix
+      community.docker.docker_network:
+        name: matrix
+        state: present
+
+    - name: create database volume
+      community.docker.docker_volume:
+        name: matrix_database
+        state: present
+
+    - name: start postgres container
+      community.docker.docker_container:
+        name: matrix_postgres
+        image: "docker.io/library/postgres:{{ matrix_postgres_image_tag }}"
+        state: started
+        restart_policy: unless-stopped
+        env:
+          POSTGRES_USER: "{{ matrix_postgres_user }}"
+          POSTGRES_DB: "{{ matrix_postgres_db }}"
+          POSTGRES_PASSWORD: "{{ matrix_postgres_password }}"
+          POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+        healthcheck:
+          test: ["CMD-SHELL", "pg_isready -d {{ matrix_postgres_db }} -U {{ matrix_postgres_user }}"]
+          start_period: 20s
+          interval: 30s
+          timeout: 5s
+          retries: 5
+        volumes:
+          - matrix_database:/var/lib/postgresql/data
+        networks:
+          - name: matrix
+
+    - name: wait for postgres to be healthy
+      community.docker.docker_container_info:
+        name: matrix_postgres
+      register: postgres_info
+      until: postgres_info.container.State.Health.Status == "healthy"
+      retries: 10
+      delay: 10
+
+    - name: create synapse data directory
+      ansible.builtin.file:
+        path: "{{ matrix_data_path }}"
+        state: directory
+        owner: 991
+        group: 991
+        mode: '0700'
+
+    - name: check if homeserver.yaml exists
+      ansible.builtin.stat:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+      register: homeserver_config
+
+    - name: generate synapse config
+      community.docker.docker_container:
+        name: synapse_generate
+        image: "ghcr.io/element-hq/synapse:{{ matrix_image_tag }}"
+        state: started
+        detach: false
+        cleanup: true
+        command: generate
+        env:
+          SYNAPSE_SERVER_NAME: "{{ matrix_server_name }}"
+          SYNAPSE_REPORT_STATS: "{{ matrix_report_stats }}"
+        volumes:
+          - "{{ matrix_data_path }}:/data"
+        networks:
+          - name: matrix
+      when: not homeserver_config.stat.exists
+
+    - name: start synapse container
+      community.docker.docker_container:
+        name: matrix_synapse
+        image: "ghcr.io/element-hq/synapse:{{ matrix_image_tag }}"
+        state: started
+        restart_policy: unless-stopped
+        comparisons:
+          image: strict
+          env: strict
+        env:
+          UID: "991"
+          GID: "991"
+          SYNAPSE_CONFIG_DIR: /data
+          SYNAPSE_DATA_DIR: /data
+        healthcheck:
+          test: ["CMD-SHELL", "curl -sf http://localhost:8008/_matrix/static/ || exit 1"]
+          start_period: 30s
+          interval: 30s
+          timeout: 10s
+          retries: 3
+        volumes:
+          - "{{ matrix_data_path }}:/data"
+        networks:
+          - name: matrix
+          - name: external
+        labels:
+          traefik.docker.network: external
+          traefik.enable: "true"
+          traefik.http.routers.matrix.entrypoints: external-https
+          traefik.http.routers.matrix.rule: "{{ matrix_traefik_host }}"
+          traefik.http.routers.matrix.tls: "true"
+          traefik.http.routers.matrix.tls.certresolver: letsencrypt
+          traefik.http.routers.matrix.tls.options: default
+          traefik.http.services.matrix.loadbalancer.server.port: "8008"
+
+    - name: wait for synapse to be healthy
+      community.docker.docker_container_info:
+        name: matrix_synapse
+      register: synapse_info
+      until: synapse_info.container.State.Health.Status == "healthy"
+      retries: 15
+      delay: 10
+
+    - name: patch homeserver.yaml - switch database to postgres
+      ansible.builtin.replace:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+        regexp: |
+          database:\n  name: sqlite3\n  args:\n    database: /data/homeserver\.db
+        replace: |
+          database:
+            name: psycopg2
+            args:
+              user: {{ matrix_postgres_user }}
+              password: {{ matrix_postgres_password }}
+              database: {{ matrix_postgres_db }}
+              host: matrix_postgres
+              cp_min: 5
+              cp_max: 10
+      no_log: true
+      notify: restart synapse
+
+    - name: patch homeserver.yaml - remove msc4108 (requires MAS, not supported)
+      ansible.builtin.blockinfile:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+        marker: "# {mark} ANSIBLE MANAGED - experimental_features"
+        state: absent
+      notify: restart synapse
+
+    - name: patch homeserver.yaml - suppress key server warning
+      ansible.builtin.blockinfile:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+        marker: "# {mark} ANSIBLE MANAGED - suppress_key_server_warning"
+        block: |
+          suppress_key_server_warning: true
+      notify: restart synapse
+
+    - name: patch homeserver.yaml - public baseurl
+      ansible.builtin.blockinfile:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+        marker: "# {mark} ANSIBLE MANAGED - public_baseurl"
+        block: |
+          public_baseurl: "{{ matrix_public_baseurl }}"
+      notify: restart synapse
+
+    - name: patch homeserver.yaml - remove oidc_providers
+      ansible.builtin.blockinfile:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+        marker: "# {mark} ANSIBLE MANAGED - oidc_providers"
+        state: absent
+      notify: restart synapse
+
+    - name: patch homeserver.yaml - remove phone number identity delegate
+      ansible.builtin.blockinfile:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+        marker: "# {mark} ANSIBLE MANAGED - account_threepid_delegates"
+        state: absent
+      notify: restart synapse
+
+    - name: patch homeserver.yaml - remove enable_3pid_changes
+      ansible.builtin.blockinfile:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+        marker: "# {mark} ANSIBLE MANAGED - enable_3pid_changes"
+        state: absent
+      notify: restart synapse
+
+    - name: patch homeserver.yaml - email settings for 3pid verification
+      ansible.builtin.blockinfile:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+        marker: "# {mark} ANSIBLE MANAGED - email"
+        block: |
+          email:
+            smtp_host: "{{ matrix_email_smtp_host }}"
+            smtp_port: {{ matrix_email_smtp_port }}
+            smtp_user: "{{ matrix_email_smtp_user }}"
+            smtp_pass: "{{ matrix_email_smtp_password }}"
+            force_tls: {{ matrix_email_force_tls | bool | ternary('true', 'false') }}
+            require_transport_security: {{ matrix_email_require_transport_security | bool | ternary('true', 'false') }}
+            enable_tls: {{ matrix_email_enable_tls | bool | ternary('true', 'false') }}
+            notif_from: "{{ matrix_email_notif_from }}"
+            app_name: "{{ matrix_email_app_name }}"
+      when: matrix_email_smtp_host | default('') | length > 0
+      notify: restart synapse
+
+    - name: patch homeserver.yaml - integration manager (dimension)
+      ansible.builtin.blockinfile:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+        marker: "# {mark} ANSIBLE MANAGED - integrations"
+        block: |
+          integrations_ui_url: "https://{{ matrix_dimension_host }}/"
+          integrations_rest_url: "https://{{ matrix_dimension_host }}/api/v1/scalar"
+          integrations_widgets_urls:
+            - "https://{{ matrix_dimension_host }}/widgets"
+      notify: restart synapse
+
+    - name: create discord bridge database
+      community.docker.docker_container_exec:
+        container: matrix_postgres
+        user: postgres
+        command: psql -U {{ matrix_postgres_user }} -c "CREATE DATABASE {{ matrix_discord_db_name }} OWNER {{ matrix_postgres_user }}"
+      register: discord_db
+      changed_when: "'already exists' not in discord_db.stderr"
+      failed_when: discord_db.rc != 0 and 'already exists' not in discord_db.stderr
+
+    - name: create discord bridge data directory
+      ansible.builtin.file:
+        path: "{{ matrix_discord_data_path }}"
+        state: directory
+        mode: '0755'
+
+    - name: check if discord registration.yaml exists
+      ansible.builtin.stat:
+        path: "{{ matrix_discord_data_path }}/registration.yaml"
+      register: discord_registration
+
+    - name: read existing discord bridge tokens
+      ansible.builtin.slurp:
+        src: "{{ matrix_discord_data_path }}/registration.yaml"
+      register: discord_registration_content
+      no_log: true
+      when: discord_registration.stat.exists | default(false)
+
+    - name: deploy discord bridge config
+      ansible.builtin.template:
+        src: templates/mautrix-discord-config.yaml.j2
+        dest: "{{ matrix_discord_data_path }}/config.yaml"
+        mode: '0600'
+      no_log: true
+      notify: restart discord
+
+    - name: restore discord bridge tokens into config
+      ansible.builtin.replace:
+        path: "{{ matrix_discord_data_path }}/config.yaml"
+        regexp: "{{ item.regexp }}"
+        replace: "{{ item.replace }}"
+      loop:
+        - regexp: "^    as_token:.*$"
+          replace: "    as_token: {{ (discord_registration_content.content | b64decode | from_yaml).as_token }}"
+        - regexp: "^    hs_token:.*$"
+          replace: "    hs_token: {{ (discord_registration_content.content | b64decode | from_yaml).hs_token }}"
+      no_log: true
+      when: discord_registration.stat.exists | default(false)
+      notify: restart discord
+
+    - name: start discord bridge container
+      community.docker.docker_container:
+        name: mautrix-discord
+        image: "dock.mau.dev/mautrix/discord:{{ matrix_discord_image_tag }}"
+        state: started
+        restart_policy: unless-stopped
+        comparisons:
+          image: strict
+        user: "0"
+        volumes:
+          - "{{ matrix_discord_data_path }}:/data"
+        networks:
+          - name: matrix
+
+    - name: create telegram bridge database
+      community.docker.docker_container_exec:
+        container: matrix_postgres
+        user: postgres
+        command: psql -U {{ matrix_postgres_user }} -c "CREATE DATABASE {{ matrix_telegram_db_name }} OWNER {{ matrix_postgres_user }}"
+      register: telegram_db
+      changed_when: "'already exists' not in telegram_db.stderr"
+      failed_when: telegram_db.rc != 0 and 'already exists' not in telegram_db.stderr
+      when: matrix_telegram_api_id | string | length > 0
+
+    - name: create telegram bridge data directory
+      ansible.builtin.file:
+        path: "{{ matrix_telegram_data_path }}"
+        state: directory
+        mode: '0755'
+      when: matrix_telegram_api_id | string | length > 0
+
+    - name: check if telegram registration.yaml exists
+      ansible.builtin.stat:
+        path: "{{ matrix_telegram_data_path }}/registration.yaml"
+      register: telegram_registration
+      when: matrix_telegram_api_id | string | length > 0
+
+    - name: read existing telegram bridge tokens
+      ansible.builtin.slurp:
+        src: "{{ matrix_telegram_data_path }}/registration.yaml"
+      register: telegram_registration_content
+      no_log: true
+      when: matrix_telegram_api_id | string | length > 0 and telegram_registration.stat.exists | default(false)
+
+    - name: deploy telegram bridge config
+      ansible.builtin.template:
+        src: templates/mautrix-telegram-config.yaml.j2
+        dest: "{{ matrix_telegram_data_path }}/config.yaml"
+        mode: '0600'
+      when: matrix_telegram_api_id | string | length > 0
+      no_log: true
+      notify: restart telegram
+
+    - name: restore telegram bridge tokens into config
+      ansible.builtin.replace:
+        path: "{{ matrix_telegram_data_path }}/config.yaml"
+        regexp: "{{ item.regexp }}"
+        replace: "{{ item.replace }}"
+      loop:
+        - regexp: "^    as_token:.*$"
+          replace: "    as_token: {{ (telegram_registration_content.content | b64decode | from_yaml).as_token }}"
+        - regexp: "^    hs_token:.*$"
+          replace: "    hs_token: {{ (telegram_registration_content.content | b64decode | from_yaml).hs_token }}"
+      no_log: true
+      when: matrix_telegram_api_id | string | length > 0 and telegram_registration.stat.exists | default(false)
+      notify: restart telegram
+
+    - name: generate telegram bridge registration
+      community.docker.docker_container:
+        name: mautrix_telegram_generate
+        image: "dock.mau.dev/mautrix/telegram:{{ matrix_telegram_image_tag }}"
+        state: started
+        detach: false
+        cleanup: true
+        user: "0"
+        command: "python3 -m mautrix_telegram -g -c /data/config.yaml -r /data/registration.yaml"
+        volumes:
+          - "{{ matrix_telegram_data_path }}:/data"
+        networks:
+          - name: matrix
+      when: matrix_telegram_api_id | string | length > 0 and not (telegram_registration.stat.exists | default(false))
+
+    - name: start telegram bridge container
+      community.docker.docker_container:
+        name: mautrix-telegram
+        image: "dock.mau.dev/mautrix/telegram:{{ matrix_telegram_image_tag }}"
+        state: started
+        restart_policy: unless-stopped
+        comparisons:
+          image: strict
+        user: "0"
+        volumes:
+          - "{{ matrix_telegram_data_path }}:/data"
+        networks:
+          - name: matrix
+      when: matrix_telegram_api_id | string | length > 0
+
+    - name: wait for discord bridge registration file
+      ansible.builtin.wait_for:
+        path: "{{ matrix_discord_data_path }}/registration.yaml"
+        timeout: 60
+
+    - name: fix permissions on discord registration file
+      ansible.builtin.file:
+        path: "{{ matrix_discord_data_path }}/registration.yaml"
+        mode: '0644'
+      notify: restart synapse
+
+    - name: fix permissions on telegram registration file
+      ansible.builtin.file:
+        path: "{{ matrix_telegram_data_path }}/registration.yaml"
+        mode: '0644'
+      when: matrix_telegram_api_id | string | length > 0
+      notify: restart synapse
+
+    - name: patch homeserver.yaml - bridge app service registrations
+      ansible.builtin.blockinfile:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+        marker: "# {mark} ANSIBLE MANAGED - app_service_config_files"
+        block: |
+          app_service_config_files:
+            - /data/discord/registration.yaml
+          {% if matrix_telegram_api_id | string | length > 0 %}
+            - /data/telegram/registration.yaml
+          {% endif %}
+      notify: restart synapse
+
+    - name: Remove legacy account_threepid_delegate_msisdn block
+      ansible.builtin.blockinfile:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+        marker: "# {mark} ANSIBLE MANAGED - account_threepid_delegate_msisdn"
+        state: absent
+      notify: restart synapse
+
+    - name: Remove trusted_third_party_id_servers block
+      ansible.builtin.blockinfile:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+        marker: "# {mark} ANSIBLE MANAGED - trusted_third_party_id_servers"
+        state: absent
+      notify: restart synapse
+
+    - name: Remove default_identity_server block
+      ansible.builtin.blockinfile:
+        path: "{{ matrix_data_path }}/homeserver.yaml"
+        marker: "# {mark} ANSIBLE MANAGED - default_identity_server"
+        state: absent
+      notify: restart synapse
+
+    - name: create dimension database
+      community.docker.docker_container_exec:
+        container: matrix_postgres
+        user: postgres
+        command: psql -U {{ matrix_postgres_user }} -c "CREATE DATABASE {{ matrix_dimension_db_name }} OWNER {{ matrix_postgres_user }}"
+      register: dimension_db
+      changed_when: "'already exists' not in dimension_db.stderr"
+      failed_when: dimension_db.rc != 0 and 'already exists' not in dimension_db.stderr
+
+    - name: create dimension data directory
+      ansible.builtin.file:
+        path: "{{ matrix_dimension_data_path }}"
+        state: directory
+        owner: 1000
+        group: 1000
+        mode: '0750'
+
+    - name: check if dimension token file exists
+      ansible.builtin.stat:
+        path: "{{ matrix_dimension_data_path }}/.token"
+      register: dimension_token_file
+
+    - name: register dimension service account in synapse
+      community.docker.docker_container_exec:
+        container: matrix_synapse
+        user: root
+        command: >-
+          register_new_matrix_user
+          -u dimension
+          -p {{ matrix_dimension_user_password }}
+          --admin
+          -c /data/homeserver.yaml
+          http://localhost:8008
+      register: dimension_register
+      changed_when: "'already exists' not in (dimension_register.stdout | default('') + dimension_register.stderr | default(''))"
+      failed_when: >
+        dimension_register.rc != 0 and
+        'already exists' not in (dimension_register.stdout | default('') + dimension_register.stderr | default(''))
+      no_log: true
+      when: not dimension_token_file.stat.exists
+
+    - name: get dimension access token
+      community.docker.docker_container_exec:
+        container: matrix_synapse
+        user: root
+        command: >-
+          python3 -c "import urllib.request,json;d=json.dumps({'type':'m.login.password','identifier':{'type':'m.id.user','user':'dimension'},'password':'{{ matrix_dimension_user_password }}'}).encode();r=urllib.request.Request('http://localhost:8008/_matrix/client/v3/login',d,{'Content-Type':'application/json'});print(json.loads(urllib.request.urlopen(r).read())['access_token'])"
+      register: dimension_token_result
+      changed_when: false
+      no_log: true
+      when: not dimension_token_file.stat.exists
+
+    - name: save dimension access token
+      ansible.builtin.copy:
+        content: "{{ dimension_token_result.stdout | trim }}"
+        dest: "{{ matrix_dimension_data_path }}/.token"
+        owner: 1000
+        group: 1000
+        mode: '0600'
+      no_log: true
+      when: not dimension_token_file.stat.exists
+
+    - name: read dimension access token
+      ansible.builtin.slurp:
+        src: "{{ matrix_dimension_data_path }}/.token"
+      register: dimension_token_slurp
+      no_log: true
+
+    - name: set dimension access token fact
+      ansible.builtin.set_fact:
+        matrix_dimension_access_token: "{{ dimension_token_slurp['content'] | b64decode | trim }}"
+      no_log: true
+
+    - name: deploy dimension config
+      ansible.builtin.template:
+        src: templates/dimension-config.yaml.j2
+        dest: "{{ matrix_dimension_data_path }}/config.yaml"
+        owner: 1000
+        group: 1000
+        mode: '0640'
+      no_log: true
+      notify: restart dimension
+
+    - name: start dimension container
+      community.docker.docker_container:
+        name: matrix_dimension
+        image: "turt2live/matrix-dimension:{{ matrix_dimension_image_tag }}"
+        state: started
+        restart_policy: unless-stopped
+        comparisons:
+          image: strict
+        user: "1000"
+        volumes:
+          - "{{ matrix_dimension_data_path }}:/data"
+        networks:
+          - name: matrix
+          - name: external
+        labels:
+          traefik.docker.network: external
+          traefik.enable: "true"
+          traefik.http.routers.dimension.entrypoints: external-https
+          traefik.http.routers.dimension.rule: "{{ matrix_dimension_traefik_host }}"
+          traefik.http.routers.dimension.tls: "true"
+          traefik.http.routers.dimension.tls.certresolver: letsencrypt
+          traefik.http.routers.dimension.tls.options: default
+          traefik.http.services.dimension.loadbalancer.server.port: "8184"
+

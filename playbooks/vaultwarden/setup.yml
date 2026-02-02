@@ -1,0 +1,56 @@
+---
+
+- hosts: vaultwarden_group
+  remote_user: root
+  tasks:
+    - name: Ensure vaultwarden folder exists
+      ansible.builtin.file:
+        path: "{{ VAULTWARDEN_DATA_PATH }}/data"
+        state: directory
+        mode: "0750"
+
+    - name: Check if the local folder files/backup exists
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/files/backup"
+      delegate_to: localhost
+      become: false
+      register: backupstat
+      
+    - name: Copy the files/backup folder to the target host
+      when: backupstat.stat.exists
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/files/backup/"
+        dest: "{{ VAULTWARDEN_DATA_PATH }}/data/"
+        owner: root
+        group: root
+        mode: 0750
+        remote_src: no
+
+    - name: Ensure proxy network exists
+      community.docker.docker_network:
+        name: proxy
+        driver: bridge
+        attachable: true
+        state: present
+
+    - name: Copy the .env file
+      ansible.builtin.template:
+        src: "templates/.env"
+        dest: "{{ VAULTWARDEN_DATA_PATH }}/.env"
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Copy configuration templates
+      ansible.builtin.template:
+        src: "templates/compose.yml"
+        dest: "{{ VAULTWARDEN_DATA_PATH }}/compose.yml"
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Start vaultwarden stack
+      community.docker.docker_compose_v2:
+        project_name: vaultwarden
+        project_src: "{{ VAULTWARDEN_DATA_PATH }}"
+        state: present

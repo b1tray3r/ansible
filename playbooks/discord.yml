@@ -1,0 +1,75 @@
+---
+- name: Install Discord
+  hosts: workstation_group
+  become: true
+  tasks:
+    - name: Probe download redirect (no download)
+      ansible.builtin.uri:
+        url: "{{ discord_download_url }}"
+        method: GET
+        follow_redirects: none
+        return_content: false
+        status_code:
+          - 301
+          - 302
+          - 303
+          - 307
+          - 308
+      register: discord_probe
+      changed_when: false
+
+    - name: Set redirect source
+      ansible.builtin.set_fact:
+        discord_redirect_source: "{{ (discord_probe.location | default('')) ~ ' ' ~ (discord_probe.url | default('')) ~ ' ' ~ (discord_probe.body | default('')) }}"
+
+    - name: Parse available version from redirect URL
+      ansible.builtin.set_fact:
+        available_version: "{{ (discord_redirect_source | regex_findall('discord-([0-9]+\\.[0-9]+\\.[0-9]+)\\.deb') | first) | default('') }}"
+
+    - name: Set target version
+      ansible.builtin.set_fact:
+        target_version: "{{ available_version }}"
+
+    - name: Query installed version for fallback decision
+      ansible.builtin.command:
+        argv:
+          - dpkg-query
+          - -W
+          - -f=${Version}
+          - discord
+      register: discord_installed_fallback_query
+      failed_when: false
+      changed_when: false
+      when: available_version | length == 0
+
+    - name: Set fallback update flag when version cannot be detected
+      ansible.builtin.set_fact:
+        needs_update: "{{ discord_installed_fallback_query.rc != 0 }}"
+      when: available_version | length == 0
+
+    - name: Report parse fallback
+      ansible.builtin.debug:
+        msg: "Could not parse Discord version from URL metadata, installing only if Discord is not installed"
+      when: available_version | length == 0
+
+    - name: Determine update requirement
+      include_tasks: utils/dpkgNeedsUpdate.yml
+      vars:
+        dpkg_package_name: "discord"
+        dpkg_target_version: "{{ target_version }}"
+      when: available_version | length > 0
+
+    - name: Download package
+      ansible.builtin.get_url:
+        url: "{{ discord_download_url }}"
+        dest: "{{ discord_deb_path }}"
+        mode: "0644"
+        force: true
+      changed_when: false
+      when: needs_update
+
+    - name: Install from downloaded file
+      include_tasks: utils/installFromFile.yml
+      vars:
+        download_target_file: "{{ discord_deb_path }}"
+      when: needs_update

@@ -1,0 +1,39 @@
+---
+
+- hosts: ntfy_group
+  remote_user: root
+  tasks:
+    - name: Ensure ntfy folder exists
+      ansible.builtin.file:
+        path: "{{ NTFY_DATA_PATH }}"
+        state: directory
+        mode: "0750"
+
+    - name: Ensure proxy network exists
+      community.docker.docker_network:
+        name: proxy
+        driver: bridge
+        attachable: true
+        state: present
+
+    - name: Copy configuration templates
+      ansible.builtin.template:
+        src: "templates/compose.yml"
+        dest: "{{ NTFY_DATA_PATH }}/compose.yml"
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Copy server.yml template
+      ansible.builtin.template:
+        src: "templates/server.yml"
+        dest: "{{ NTFY_DATA_PATH }}/server.yml"
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Start ntfy stack
+      community.docker.docker_compose_v2:
+        project_name: ntfy
+        project_src: "{{ NTFY_DATA_PATH }}"
+        state: present

@@ -1,0 +1,30 @@
+homeserver:
+    name: "{{ matrix_server_name }}"
+    accessToken: "{{ matrix_dimension_access_token }}"
+    clientServerUrl: "http://matrix_synapse:8008"
+    federationUrl: "https://{{ matrix_server_name }}"
+    mediaUrl: "https://{{ matrix_server_name }}"
+
+web:
+    port: 8184
+    address: "0.0.0.0"
+
+database:
+    uri: "postgres://{{ matrix_postgres_user }}:{{ matrix_postgres_password }}@matrix_postgres/{{ matrix_dimension_db_name }}"
+
+logging:
+    file: "/data/dimension.log"
+    console: true
+    consoleLevel: "info"
+    fileLevel: "verbose"
+    rotate:
+        size: 52428800
+        count: 5
+
+dimensions:
+    trackIntegrations: true
+
+admins:
+    - "@{{ matrix_dimension_admin }}:{{ matrix_server_name }}"
+
+widgetBlacklist: []

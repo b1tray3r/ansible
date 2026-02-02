@@ -1,0 +1,40 @@
+---
+
+- hosts: koffan_group
+  remote_user: root
+  tasks:
+    - name: Ensure koffan folder exists
+      ansible.builtin.file:
+        path: "{{ KOFFAN_DATA_PATH }}"
+        state: directory
+        mode: "0750"
+
+    - name: Ensure proxy network exists
+      community.docker.docker_network:
+        name: proxy
+        driver: bridge
+        attachable: true
+        state: present
+
+    - name: Copy configuration templates
+      ansible.builtin.template:
+        src: "compose.yml"
+        dest: "{{ KOFFAN_DATA_PATH }}/compose.yml"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Start koffan stack
+      community.docker.docker_compose_v2:
+        project_name: koffan
+        project_src: "{{ KOFFAN_DATA_PATH }}"
+        state: present
+
+    - name: Notify completion
+      ansible.builtin.shell:
+        cmd: "curl -s --max-time 10 -u {{ NTFY_ABORGARDT_USER }}:{{ NTFY_ABORGARDT_PASSWORD }} -H 'Title: Koffan Setup Complete' -H 'Tags: white_check_mark' -d 'Koffan playbook completed successfully on {{ inventory_hostname }}' https://{{ NTFY_HOST }}/{{ NTFY_TOPIC_ANSIBLE }}"
+      register: ntfy_result
+      failed_when: false
+      changed_when: false
+      delegate_to: localhost
+      become: false

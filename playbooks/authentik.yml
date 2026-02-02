@@ -1,0 +1,157 @@
+---
+- name: Deploy Authentik to borgardt.me
+  hosts: authentik_group
+  tasks:
+    - name: check for external network
+      community.docker.docker_network_info:
+        name: external
+      register: external_network
+      failed_when: false
+
+    - name: create network for authentik
+      community.docker.docker_network:
+        name: authentik
+        state: present
+
+    - name: create database volume
+      community.docker.docker_volume:
+        name: authentik_database
+        state: present
+
+    - name: start postgres container
+      community.docker.docker_container:
+        name: authentik_postgres
+        image: "docker.io/library/postgres:{{ authentik_postgres_image_tag }}"
+        state: started
+        restart_policy: unless-stopped
+        env:
+          POSTGRES_USER: "{{ authentik_postgres_user }}"
+          POSTGRES_DB: "{{ authentik_postgres_db }}"
+          POSTGRES_PASSWORD: "{{ authentik_postgres_password }}"
+        healthcheck:
+          test: ["CMD-SHELL", "pg_isready -d {{ authentik_postgres_db }} -U {{ authentik_postgres_user }}"]
+          start_period: 20s
+          interval: 30s
+          timeout: 5s
+          retries: 5
+        volumes:
+          - authentik_database:/var/lib/postgresql/data
+        networks:
+          - name: authentik
+
+    - name: create redis volume
+      community.docker.docker_volume:
+        name: authentik_redis
+        state: present
+    
+    - name: start redis container
+      community.docker.docker_container:
+        name: authentik_redis
+        image: docker.io/library/redis:alpine
+        command: "--save 60 1 --loglevel warning"
+        state: started
+        restart_policy: unless-stopped
+        healthcheck:
+          test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+          start_period: 20s
+          interval: 30s
+          timeout: 3s
+          retries: 5
+        volumes:
+          - authentik_redis:/data
+        networks:
+          - name: authentik
+
+    - name: wait for postgres to be healthy
+      community.docker.docker_container_info:
+        name: authentik_postgres
+      register: postgres_info
+      until: postgres_info.container.State.Health.Status == "healthy"
+      retries: 10
+      delay: 10
+
+    - name: wait for redis to be healthy
+      community.docker.docker_container_info:
+        name: authentik_redis
+      register: redis_info
+      until: redis_info.container.State.Health.Status == "healthy"
+      retries: 10
+      delay: 10
+    
+    - name: create media folder
+      ansible.builtin.file:
+        path: "{{ authentik_media_path }}"
+        state: directory
+        owner: 0
+        group: 0
+        mode: '0755'
+
+    - name: create custom templates folder
+      ansible.builtin.file:
+        path: "{{ authentik_custom_templates_path }}"
+        state: directory
+        owner: 0
+        group: 0
+        mode: '0755'
+
+    - name: start authentik server container
+      community.docker.docker_container:
+        name: authentik
+        image: "ghcr.io/goauthentik/server:{{ authentik_image_tag }}"
+        state: started
+        command: "server"
+        restart_policy: unless-stopped
+        env:
+          AUTHENTIK_REDIS__HOST: authentik_redis
+          AUTHENTIK_POSTGRESQL__HOST: authentik_postgres
+          AUTHENTIK_POSTGRESQL__USER: "{{ authentik_postgres_user | string }}"
+          AUTHENTIK_POSTGRESQL__PASSWORD: "{{ authentik_postgres_password | string }}"
+          AUTHENTIK_POSTGRESQL__NAME: "{{ authentik_postgres_db | string }}"
+          AUTHENTIK_SECRET_KEY: "{{ authentik_secret_key | string }}"
+          AUTHENTIK_ERROR_REPORTING__ENABLED: "{{ authentik_error_reporting_enabled | string }}"
+          AUTHENTIK_EMAIL__HOST: "{{ authentik_email_host | string }}"
+          AUTHENTIK_EMAIL__PORT: "{{ authentik_email_port | string }}"
+          AUTHENTIK_EMAIL__USERNAME: "{{ authentik_email_username | string }}"
+          AUTHENTIK_EMAIL__PASSWORD: "{{ authentik_email_password | string }}"
+          AUTHENTIK_EMAIL__USE_TLS: "{{ authentik_email_use_tls | string }}"
+          AUTHENTIK_EMAIL__USE_SSL: "{{ authentik_email_use_ssl | string }}"
+          AUTHENTIK_EMAIL__TIMEOUT: "{{ authentik_email_timeout | string }}"
+          AUTHENTIK_EMAIL__FROM: "{{ authentik_email_from | string }}"
+        volumes:
+          - "{{ authentik_media_path }}:/media"
+          - "{{ authentik_custom_templates_path }}:/custom_templates"
+        networks:
+          - name: authentik
+          - name: external
+        labels:
+          traefik.docker.network: external
+          traefik.enable: "true"
+          traefik.http.routers.sso.entrypoints: external-https
+          traefik.http.routers.sso.rule: "{{ authentik_traefik_host }}"
+          traefik.http.routers.sso.tls: "true"
+          traefik.http.routers.sso.tls.certresolver: letsencrypt
+          traefik.http.routers.sso.tls.options: default
+          traefik.http.services.sso.loadbalancer.server.port: "9000"
+    
+    - name: start authentik worker container
+      community.docker.docker_container:
+        name: authentik_worker
+        image: "ghcr.io/goauthentik/server:{{ authentik_image_tag }}"
+        state: started
+        command: "worker"
+        user: "0"
+        restart_policy: unless-stopped
+        env:
+          AUTHENTIK_SECRET_KEY: "{{ authentik_secret_key | string }}"
+          AUTHENTIK_REDIS__HOST: authentik_redis
+          AUTHENTIK_POSTGRESQL__HOST: authentik_postgres
+          AUTHENTIK_POSTGRESQL__USER: "{{ authentik_postgres_user | string }}"
+          AUTHENTIK_POSTGRESQL__PASSWORD: "{{ authentik_postgres_password | string }}"
+          AUTHENTIK_POSTGRESQL__NAME: "{{ authentik_postgres_db | string }}"
+        volumes:
+          - "{{ authentik_certs_path }}:/certs"
+          - "{{ authentik_media_path }}:/media"
+          - "{{ authentik_custom_templates_path }}:/custom_templates"
+          - /var/run/docker.sock:/var/run/docker.sock:ro
+        networks:
+          - name: authentik

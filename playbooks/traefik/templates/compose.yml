@@ -1,0 +1,55 @@
+---
+networks:
+  proxy:
+    external: true
+
+volumes:
+  traefik_certs:
+    external: true
+
+configs:
+  traefik_config:
+    file: "{{ TRAEFIK_DATA_PATH }}/traefik.yml"
+  traefik_middlewares:
+    file: "{{ TRAEFIK_DATA_PATH }}/middlewares.yml"
+  traefik_routers:
+    file: "{{ TRAEFIK_DATA_PATH }}/routers.yml"
+  traefik_services:
+    file: "{{ TRAEFIK_DATA_PATH }}/services.yml"
+
+secrets:
+  ionos_api_key:
+    file: "{{ TRAEFIK_DATA_PATH }}/.env.secret"
+
+services:
+  traefik:
+    image: "{{ TRAEFIK_IMAGE }}"
+    hostname: traefik
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_certs:/var/traefik/certs/:rw
+    env_file:
+      - ./.env
+    configs:
+      - source: traefik_config
+        target: /etc/traefik/traefik.yml
+      - source: traefik_middlewares
+        target: /etc/traefik/files/middlewares.yml
+      - source: traefik_routers
+        target: /etc/traefik/files/routers.yml
+      - source: traefik_services
+        target: /etc/traefik/files/services.yml
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - proxy
+    secrets:
+      - source: ionos_api_key
+        target: /.env.secret
