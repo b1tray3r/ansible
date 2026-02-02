@@ -1,0 +1,28 @@
+---
+# Common role - Main tasks
+- name: Update apt cache (on Debian/Ubuntu)
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+
+- name: Install common packages
+  ansible.builtin.package:
+    name: "{{ common_packages }}"
+    state: present
+  when: common_packages is defined
+
+- name: Ensure Python pip is installed
+  ansible.builtin.package:
+    name:
+      - python3-pip
+      - python3-setuptools
+    state: present
+
+- name: Install Python Docker SDK for Ansible
+  ansible.builtin.pip:
+    name:
+      - docker
+      - docker-compose
+    state: present
+    extra_args: --user

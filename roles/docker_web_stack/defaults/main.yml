@@ -1,0 +1,19 @@
+---
+# Default variables for docker_web_stack role
+
+# Network configuration
+web_stack_network: webstack_network
+
+# Database configuration
+web_stack_db_image: postgres:15-alpine
+web_stack_db_container: webstack_db
+web_stack_db_volume: webstack_db_data
+web_stack_db_name: webapp
+web_stack_db_user: webapp
+web_stack_db_password: changeme  # Override this with vault in production!
+
+# Application configuration
+web_stack_app_image: nginx:alpine
+web_stack_app_container: webstack_app
+web_stack_app_volume: webstack_app_data
+web_stack_app_port: 8080

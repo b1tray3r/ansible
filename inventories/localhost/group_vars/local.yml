@@ -1,0 +1,16 @@
+---
+# Group variables for local hosts
+# These variables apply to all hosts in the 'local' group
+
+# Docker configuration
+docker_install_compose: false  # We use Ansible instead of docker-compose
+docker_users:
+  - "{{ ansible_user_id }}"
+
+# Common packages to install
+common_packages:
+  - curl
+  - git
+  - vim
+  - htop
+  - python3-pip

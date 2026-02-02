@@ -1,0 +1,31 @@
+# Ansible specific
+*.retry
+*.log
+.ansible/
+/tmp/ansible_fact_cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Vault password file (never commit!)
+.vault_pass
+
+# Temporary files
+/tmp/

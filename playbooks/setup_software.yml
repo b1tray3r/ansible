@@ -1,0 +1,21 @@
+---
+# Playbook for setting up base system and installing software
+- name: Install base software and common packages
+  hosts: all
+  become: true
+  
+  tasks:
+    - name: Include common role
+      ansible.builtin.include_role:
+        name: common
+    
+    - name: Include docker role
+      ansible.builtin.include_role:
+        name: docker
+      
+    - name: Display completion message
+      ansible.builtin.debug:
+        msg:
+          - "Software installation complete!"
+          - "Docker has been installed and configured."
+          - "You can now deploy Docker stacks using the appropriate playbooks."

@@ -1,0 +1,21 @@
+---
+# Meta information for docker_web_stack role
+galaxy_info:
+  role_name: docker_web_stack
+  author: Ansible Project
+  description: Example Docker web stack with database (without docker-compose)
+  company:
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+dependencies:
+  - role: docker

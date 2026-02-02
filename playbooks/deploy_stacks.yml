@@ -1,0 +1,28 @@
+---
+# Playbook for deploying Docker stacks
+- name: Deploy Docker web stack
+  hosts: all
+  become: true
+  
+  tasks:
+    - name: Deploy the example web stack
+      ansible.builtin.include_role:
+        name: docker_web_stack
+      
+    - name: Wait for services to be ready
+      ansible.builtin.pause:
+        seconds: 5
+        
+    - name: Verify containers are running
+      community.docker.docker_container_info:
+        name: "{{ item }}"
+      loop:
+        - webstack_db
+        - webstack_app
+      register: container_info
+      
+    - name: Display container status
+      ansible.builtin.debug:
+        msg: "Container {{ item.item }} is {{ item.container.State.Status }}"
+      loop: "{{ container_info.results }}"
+      when: item.exists

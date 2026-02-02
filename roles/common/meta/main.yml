@@ -1,0 +1,20 @@
+---
+# Meta information for common role
+galaxy_info:
+  role_name: common
+  author: Ansible Project
+  description: Common base configuration and package installation
+  company: 
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+dependencies: []

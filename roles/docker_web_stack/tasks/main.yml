@@ -1,0 +1,79 @@
+---
+# Docker Web Stack - Main tasks
+# This is an example role showing how to deploy a Docker stack without docker-compose
+
+- name: Create web stack network
+  community.docker.docker_network:
+    name: "{{ web_stack_network }}"
+    driver: bridge
+    state: present
+
+- name: Create volumes for web stack
+  community.docker.docker_volume:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - "{{ web_stack_db_volume }}"
+    - "{{ web_stack_app_volume }}"
+
+- name: Pull required Docker images
+  community.docker.docker_image:
+    name: "{{ item }}"
+    source: pull
+    state: present
+  loop:
+    - "{{ web_stack_db_image }}"
+    - "{{ web_stack_app_image }}"
+
+- name: Deploy database container
+  community.docker.docker_container:
+    name: "{{ web_stack_db_container }}"
+    image: "{{ web_stack_db_image }}"
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: "{{ web_stack_network }}"
+    volumes:
+      - "{{ web_stack_db_volume }}:/var/lib/postgresql/data"
+    env:
+      POSTGRES_DB: "{{ web_stack_db_name }}"
+      POSTGRES_USER: "{{ web_stack_db_user }}"
+      POSTGRES_PASSWORD: "{{ web_stack_db_password }}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ web_stack_db_user }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+- name: Wait for database to be ready
+  ansible.builtin.wait_for:
+    timeout: 30
+  delegate_to: localhost
+
+- name: Deploy web application container
+  community.docker.docker_container:
+    name: "{{ web_stack_app_container }}"
+    image: "{{ web_stack_app_image }}"
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: "{{ web_stack_network }}"
+    ports:
+      - "{{ web_stack_app_port }}:80"
+    volumes:
+      - "{{ web_stack_app_volume }}:/data"
+    env:
+      DB_HOST: "{{ web_stack_db_container }}"
+      DB_NAME: "{{ web_stack_db_name }}"
+      DB_USER: "{{ web_stack_db_user }}"
+      DB_PASSWORD: "{{ web_stack_db_password }}"
+    links:
+      - "{{ web_stack_db_container }}:database"
+
+- name: Display deployment information
+  ansible.builtin.debug:
+    msg:
+      - "Web stack deployed successfully!"
+      - "Application URL: http://localhost:{{ web_stack_app_port }}"
+      - "Database: {{ web_stack_db_container }}"
+      - "Network: {{ web_stack_network }}"

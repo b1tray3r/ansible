@@ -1,0 +1,5 @@
+---
+# Default variables for docker role
+docker_users: []
+docker_networks: []
+docker_volumes: []

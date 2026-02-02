@@ -1,0 +1,10 @@
+---
+# Default variables for common role
+common_packages:
+  - curl
+  - git
+  - vim
+  - htop
+  - wget
+  - unzip
+  - software-properties-common

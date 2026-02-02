@@ -1,0 +1,21 @@
+---
+# Meta information for docker role
+galaxy_info:
+  role_name: docker
+  author: Ansible Project
+  description: Install and configure Docker CE
+  company:
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+dependencies:
+  - role: common

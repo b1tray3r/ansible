@@ -1,0 +1,22 @@
+---
+# Main playbook - site.yml
+# This is the master playbook that orchestrates the entire setup
+
+- name: Setup system and install software
+  hosts: all
+  become: true
+  roles:
+    - common
+
+- name: Install and configure Docker
+  hosts: all
+  become: true
+  roles:
+    - docker
+
+# Uncomment to deploy the example web stack
+# - name: Deploy Docker web stack
+#   hosts: all
+#   become: true
+#   roles:
+#     - docker_web_stack
