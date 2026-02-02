@@ -28,38 +28,47 @@ This repository contains a modular and flexible Ansible project for installing s
 
 - Python 3.8+
 - Ansible 2.12+
+- [just](https://github.com/casey/just) command runner (optional but recommended)
 - sudo privileges (for system-level changes)
 
 ## Quick Start
 
-### 1. Install Ansible Collections
+### 1. Install just (optional but recommended)
 
-First, install the required Ansible collections:
+```bash
+# On macOS
+brew install just
+
+# On Linux
+curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to ~/bin
+
+# Or use the built-in installer
+just install-just
+```
+
+### 2. Install Ansible Collections
+
+```bash
+just install
+# Or manually: ansible-galaxy collection install -r requirements.yml
+```
+
+### 3. Run the Setup
+
+```bash
+just quickstart  # Install collections and run setup
+# Or step by step:
+just setup      # Install software and Docker
+just deploy     # Deploy Docker stacks
+# Or all at once:
+just all        # Run complete site playbook
+```
+
+### Without just
 
 ```bash
 ansible-galaxy collection install -r requirements.yml
-```
-
-### 2. Run the Main Playbook
-
-To set up everything (software + Docker):
-
-```bash
 ansible-playbook playbooks/site.yml
-```
-
-### 3. Or Run Specific Playbooks
-
-Install software only:
-
-```bash
-ansible-playbook playbooks/setup_software.yml
-```
-
-Deploy Docker stacks:
-
-```bash
-ansible-playbook playbooks/deploy_stacks.yml
 ```
 
 ## Available Roles
@@ -86,7 +95,14 @@ Example role demonstrating how to deploy a multi-container stack without docker-
 
 ## Creating Your Own Docker Stacks
 
-To create a new Docker stack:
+### Quick Method (using just)
+
+```bash
+just new-role my_stack
+# Edit the generated files in roles/my_stack/
+```
+
+### Manual Method
 
 1. Create a new role in `roles/` directory:
    ```bash
@@ -120,6 +136,14 @@ To create a new Docker stack:
 
 The default inventory targets `localhost`. To target other hosts:
 
+**Using just:**
+```bash
+just new-inventory production
+# Edit inventories/production/hosts.yml
+just deploy-env production
+```
+
+**Manual:**
 1. Create a new inventory file in `inventories/`
 2. Update `ansible.cfg` or specify with `-i` flag:
    ```bash
@@ -144,6 +168,21 @@ ansible-playbook playbooks/deploy_stacks.yml -e "web_stack_app_port=9090"
 
 For sensitive data, use Ansible Vault:
 
+**Using just:**
+```bash
+just vault-create inventories/localhost/group_vars/vault.yml
+# Add your encrypted variables
+# Run playbooks with: ansible-playbook playbooks/site.yml --ask-vault-pass
+```
+
+**Available vault commands:**
+- `just vault-create <file>` - Create new encrypted file
+- `just vault-edit <file>` - Edit encrypted file
+- `just vault-view <file>` - View encrypted file
+- `just vault-encrypt <file>` - Encrypt existing file
+- `just vault-decrypt <file>` - Decrypt file
+
+**Manual:**
 1. Create a vault file:
    ```bash
    ansible-vault create inventories/localhost/group_vars/vault.yml
@@ -175,34 +214,57 @@ This project follows Ansible best practices:
 
 ## Testing
 
-Check Ansible syntax:
+**Using just:**
 ```bash
-ansible-playbook playbooks/site.yml --syntax-check
+just syntax        # Check syntax of site.yml
+just syntax-all    # Check all playbooks
+just check         # Dry run without changes
+just list          # List all tasks
+just lint          # Run ansible-lint
 ```
 
-Dry run (check mode):
+**Manual:**
 ```bash
-ansible-playbook playbooks/site.yml --check
+ansible-playbook playbooks/site.yml --syntax-check  # Check syntax
+ansible-playbook playbooks/site.yml --check         # Dry run
+ansible-playbook playbooks/site.yml --list-tasks    # List tasks
 ```
 
-List all tasks:
-```bash
-ansible-playbook playbooks/site.yml --list-tasks
-```
+## Available Just Commands
+
+Run `just` or `just --list` to see all available commands grouped by category:
+
+**Setup & Installation:** `install`, `install-just`, `quickstart`  
+**Deployment:** `all`, `setup`, `deploy`, `deploy-env`  
+**Testing:** `check`, `syntax`, `syntax-all`, `lint`  
+**Information:** `list`, `list-hosts`, `config`, `version`  
+**Docker Management:** `docker-ps`, `docker-networks`, `docker-volumes`, `docker-stop`, `docker-clean`  
+**Vault Management:** `vault-create`, `vault-edit`, `vault-view`, `vault-encrypt`, `vault-decrypt`  
+**Development:** `clean`, `new-role`, `new-inventory`, `reset`
 
 ## Troubleshooting
 
+**Using just:**
+```bash
+just docker-ps          # Check running containers
+just docker-ps-all      # Check all containers
+just docker-networks    # View Docker networks
+just docker-volumes     # View Docker volumes
+just config             # View Ansible configuration
+just version            # Check Ansible version
+```
+
 ### Issue: Docker containers not starting
-- Check logs: `docker logs <container_name>`
-- Verify network: `docker network ls`
-- Check container status: `docker ps -a`
+- Check logs: `docker logs <container_name>` or `just docker-ps-all`
+- Verify network: `docker network ls` or `just docker-networks`
+- Check container status: `docker ps -a` or `just docker-ps-all`
 
 ### Issue: Permission denied
 - Ensure user is in docker group: `sudo usermod -aG docker $USER`
 - Log out and back in for group changes to take effect
 
 ### Issue: Ansible module not found
-- Install required collections: `ansible-galaxy collection install -r requirements.yml`
+- Install required collections: `just install` or manually with `ansible-galaxy collection install -r requirements.yml`
 
 ## Contributing
 

@@ -8,10 +8,24 @@ This guide will help you get started with the Ansible project in minutes.
 - Python 3.8+ installed
 - sudo/root access
 - Internet connection
+- [just](https://github.com/casey/just) command runner (optional but recommended)
 
 ## Installation Steps
 
-### Step 1: Install Ansible (if not already installed)
+### Step 1: Install just (optional but recommended)
+
+```bash
+# On Ubuntu/Debian
+curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to ~/bin
+
+# On macOS
+brew install just
+
+# Verify installation
+just --version
+```
+
+### Step 2: Install Ansible (if not already installed)
 
 ```bash
 # On Ubuntu/Debian
@@ -25,65 +39,65 @@ brew install ansible
 pip install ansible
 ```
 
-### Step 2: Clone the Repository (if needed)
+### Step 3: Clone the Repository (if needed)
 
 ```bash
 git clone <repository-url>
 cd ansible
 ```
 
-### Step 3: Install Required Collections
+### Step 4: Install Required Collections
 
+**Using just (recommended):**
+```bash
+just install
+```
+
+**Manual:**
 ```bash
 ansible-galaxy collection install -r requirements.yml
 ```
 
-Or using the Makefile:
-
-```bash
-make install
-```
-
 ## Basic Usage
 
-### Option 1: Run Everything (Recommended for first-time setup)
+### Quick Start (Everything in One Command)
+
+```bash
+just quickstart
+```
+
+This will:
+1. Install Ansible collections
+2. Set up the system and install Docker
+
+### Option 1: Run Everything
 
 This will install Docker, common packages, and set up the system:
 
+**Using just:**
+```bash
+just all
+```
+
+**Manual:**
 ```bash
 ansible-playbook playbooks/site.yml
 ```
 
-Or using the Makefile:
-
-```bash
-make all
-```
-
 ### Option 2: Step-by-Step Setup
 
-**1. Install software and Docker only:**
+**1. Install software and Docker:**
 
 ```bash
-ansible-playbook playbooks/setup_software.yml
-```
-
-Or:
-
-```bash
-make setup
+just setup
+# Or: ansible-playbook playbooks/setup_software.yml
 ```
 
 **2. Deploy Docker stacks:**
 
 ```bash
-ansible-playbook playbooks/deploy_stacks.yml
-```
-
-Or:
-
-```bash
-make deploy
+just deploy
+# Or: ansible-playbook playbooks/deploy_stacks.yml
 ```
 
 ## Testing Without Making Changes
@@ -91,33 +105,71 @@ make deploy
 Run in check mode (dry-run):
 
 ```bash
-ansible-playbook playbooks/site.yml --check
+just check
+# Or: ansible-playbook playbooks/site.yml --check
 ```
 
-Or:
+## Common Operations with just
 
+View all available commands:
 ```bash
-make check
+just
+# Or: just --list
 ```
 
-## Common Operations
-
-### Check Syntax
-
+### Setup & Installation
 ```bash
-make syntax
+just install          # Install Ansible collections
+just quickstart       # Install and run setup
 ```
 
-### List All Tasks
-
+### Deployment
 ```bash
-make list
+just setup            # Install software only
+just deploy           # Deploy Docker stacks
+just all              # Run complete setup
+just deploy-env prod  # Deploy to specific environment
 ```
 
-### View Help
-
+### Testing & Validation
 ```bash
-make help
+just check            # Dry-run
+just syntax           # Check syntax
+just syntax-all       # Check all playbooks
+just lint             # Run ansible-lint
+```
+
+### Information
+```bash
+just list             # List all tasks
+just list-hosts       # List inventory hosts
+just config           # Show Ansible config
+just version          # Show Ansible version
+```
+
+### Docker Management
+```bash
+just docker-ps        # Show running containers
+just docker-ps-all    # Show all containers
+just docker-networks  # Show networks
+just docker-volumes   # Show volumes
+just docker-stop      # Stop all containers
+just docker-clean     # Clean stopped containers
+```
+
+### Development
+```bash
+just new-role myapp   # Create new role from template
+just new-inventory prod  # Create new inventory
+just clean            # Clean temp files
+just reset            # Full reset (stop containers, clean)
+```
+
+### Vault Management
+```bash
+just vault-create FILE    # Create encrypted file
+just vault-edit FILE      # Edit encrypted file
+just vault-view FILE      # View encrypted file
 ```
 
 ## What Gets Installed
@@ -145,6 +197,15 @@ make help
 
 By default, everything runs on localhost. To target other hosts:
 
+**Using just:**
+```bash
+just new-inventory production
+# Edit inventories/production/hosts.yml
+just deploy-env production
+```
+
+**Manual:**
+
 1. Create a new inventory file:
 
 ```bash
@@ -169,6 +230,7 @@ all:
 
 ```bash
 ansible-playbook -i inventories/production/hosts.yml playbooks/site.yml
+# Or: just deploy-env production
 ```
 
 ### Modify Variables
@@ -200,14 +262,31 @@ Edit `playbooks/site.yml` and uncomment the web stack play:
 Then run:
 
 ```bash
-ansible-playbook playbooks/site.yml
+just all
+# Or: ansible-playbook playbooks/site.yml
 ```
 
 Access the web application at: http://localhost:8080
 
 ## Create Your Own Docker Stack
 
-### Method 1: Use the Template
+### Method 1: Use just (Quick & Easy)
+
+```bash
+# Create from template
+just new-role my_app
+
+# Edit the defaults
+nano roles/my_app/defaults/main.yml
+
+# Add to a playbook
+echo "    - my_app" >> playbooks/site.yml
+
+# Deploy
+just all
+```
+
+### Method 2: Manual
 
 ```bash
 # Copy the template
@@ -223,7 +302,7 @@ echo "    - my_app" >> playbooks/site.yml
 ansible-playbook playbooks/site.yml
 ```
 
-### Method 2: From Scratch
+### Method 3: From Scratch
 
 See `roles/stack_template/README.md` for detailed instructions.
 
@@ -242,7 +321,8 @@ newgrp docker
 **Solution:** Install the required collections:
 
 ```bash
-ansible-galaxy collection install -r requirements.yml
+just install
+# Or: ansible-galaxy collection install -r requirements.yml
 ```
 
 ### Issue: Playbook fails with connection errors
@@ -262,6 +342,7 @@ localhost:
 
 ```bash
 docker logs <container_name>
+# Or: just docker-ps-all
 ```
 
 Check if ports are already in use:
@@ -270,32 +351,46 @@ Check if ports are already in use:
 sudo netstat -tlnp | grep <port>
 ```
 
+View Docker resources:
+```bash
+just docker-ps        # Running containers
+just docker-networks  # Networks
+just docker-volumes   # Volumes
+```
+
 ## Next Steps
 
 1. **Explore the roles:** Check out `roles/` directory to understand the structure
 2. **Read the documentation:** See `README.md` for comprehensive information
-3. **Create custom stacks:** Use the template to build your own Docker stacks
-4. **Add security:** Use Ansible Vault for sensitive data
-5. **Set up multiple environments:** Create inventories for dev, staging, production
+3. **Create custom stacks:** Use `just new-role <name>` to build your own Docker stacks
+4. **Add security:** Use `just vault-create` for sensitive data
+5. **Set up multiple environments:** Use `just new-inventory <env>` for dev, staging, production
 
 ## Getting Help
 
 - Check the main README.md
 - View role-specific documentation in `roles/<role>/README.md`
 - Review example configurations in `examples/`
+- Run `just` to see all available commands
 - Check Ansible documentation: https://docs.ansible.com/
 
 ## Quick Reference
 
 | Command | Description |
 |---------|-------------|
-| `make install` | Install Ansible collections |
-| `make setup` | Install Docker and software |
-| `make deploy` | Deploy Docker stacks |
-| `make all` | Run everything |
-| `make check` | Dry-run without changes |
-| `make syntax` | Check syntax |
-| `make list` | List all tasks |
-| `make help` | Show all commands |
+| `just` | Show all available commands |
+| `just quickstart` | Install collections and setup |
+| `just install` | Install Ansible collections |
+| `just setup` | Install Docker and software |
+| `just deploy` | Deploy Docker stacks |
+| `just all` | Run everything |
+| `just check` | Dry-run without changes |
+| `just syntax` | Check syntax |
+| `just list` | List all tasks |
+| `just new-role NAME` | Create new role |
+| `just new-inventory ENV` | Create new inventory |
+| `just vault-create FILE` | Create encrypted file |
+| `just docker-ps` | Show running containers |
+| `just reset` | Full reset and cleanup |
 
 Happy automating! 🚀
