@@ -1,0 +1,74 @@
+---
+- name: Install DBeaver Community Edition
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: true
+  
+  vars:
+    dbeaver_version: "latest"
+    force_update: false  # Set to true to update even if already installed
+  
+  tasks:      
+    - name: Check if DBeaver is already installed
+      command: dpkg -l dbeaver-ce
+      register: dbeaver_installed
+      failed_when: false
+      changed_when: false
+      when: ansible_facts["os_family"] == "Debian"
+      
+    - name: Get installed DBeaver version
+      shell: dpkg -l dbeaver-ce | grep '^ii' | awk '{print $3}'
+      register: installed_version
+      failed_when: false
+      changed_when: false
+      when: ansible_facts["os_family"] == "Debian" and dbeaver_installed.rc == 0
+      
+    - name: Download DBeaver .deb package to check latest version
+      get_url:
+        url: https://dbeaver.io/files/dbeaver-ce_latest_amd64.deb
+        dest: /tmp/dbeaver-ce.deb
+        mode: '0644'
+        force: true
+      when: ansible_facts["os_family"] == "Debian" and (dbeaver_installed.rc != 0 or force_update or installed_version.stdout is defined)
+      
+    - name: Get version from downloaded package
+      shell: dpkg --info /tmp/dbeaver-ce.deb | grep '^\\s*Version:' | awk '{print $2}'
+      register: available_version
+      changed_when: false
+      when: ansible_facts["os_family"] == "Debian" and (dbeaver_installed.rc != 0 or force_update or installed_version.stdout is defined)
+      
+    - name: Determine if update is needed
+      set_fact:
+        needs_update: "{{ dbeaver_installed.rc != 0 or force_update or (installed_version.stdout | default('') != available_version.stdout | default('')) }}"
+      when: ansible_facts["os_family"] == "Debian"
+      
+    - name: Download DBeaver .deb package if needed
+      get_url:
+        url: https://dbeaver.io/files/dbeaver-ce_latest_amd64.deb
+        dest: /tmp/dbeaver-ce.deb
+        mode: '0644'
+        force: true
+      when: ansible_facts["os_family"] == "Debian" and needs_update and available_version.stdout is not defined
+      
+    - name: Install DBeaver from .deb package
+      apt:
+        deb: /tmp/dbeaver-ce.deb
+        state: present
+      when: ansible_facts["os_family"] == "Debian" and needs_update
+      
+    - name: Clean up downloaded .deb file
+      file:
+        path: /tmp/dbeaver-ce.deb
+        state: absent
+      when: ansible_facts["os_family"] == "Debian"
+
+    - name: Print installation status
+      debug:
+        msg: "DBeaver {{ available_version.stdout | default('latest') }} has been {{ 'updated' if (dbeaver_installed.rc == 0 and needs_update) else 'installed' }}"
+      when: ansible_facts["os_family"] == "Debian" and needs_update
+      
+    - name: Print skip status
+      debug:
+        msg: "DBeaver {{ installed_version.stdout | default('unknown') }} is already up to date"
+      when: ansible_facts["os_family"] == "Debian" and not needs_update

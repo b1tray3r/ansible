@@ -1,0 +1,4 @@
+---
+docker_install_compose: false
+docker_users:
+  - "{{ ansible_user_id }}"
