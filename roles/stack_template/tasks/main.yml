@@ -1,0 +1,54 @@
+---
+# Template for creating a new Docker stack role
+# Copy this directory and customize for your needs
+
+# 1. Copy this template:
+#    cp -r roles/stack_template roles/my_stack
+#
+# 2. Customize the tasks in tasks/main.yml
+#
+# 3. Update defaults/main.yml with your variables
+#
+# 4. Update meta/main.yml with role information
+#
+# 5. Add your role to a playbook
+
+- name: Create custom Docker network
+  community.docker.docker_network:
+    name: "{{ stack_network }}"
+    driver: bridge
+    state: present
+
+- name: Create custom Docker volumes
+  community.docker.docker_volume:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ stack_volumes }}"
+  when: stack_volumes is defined and stack_volumes | length > 0
+
+- name: Pull required images
+  community.docker.docker_image:
+    name: "{{ item }}"
+    source: pull
+    state: present
+  loop: "{{ stack_images }}"
+
+- name: Deploy containers
+  community.docker.docker_container:
+    name: "{{ item.name }}"
+    image: "{{ item.image }}"
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: "{{ stack_network }}"
+    ports: "{{ item.ports | default([]) }}"
+    volumes: "{{ item.volumes | default([]) }}"
+    env: "{{ item.env | default({}) }}"
+  loop: "{{ stack_containers }}"
+
+- name: Display deployment summary
+  ansible.builtin.debug:
+    msg:
+      - "Stack deployed successfully!"
+      - "Network: {{ stack_network }}"
+      - "Containers: {{ stack_containers | map(attribute='name') | list }}"

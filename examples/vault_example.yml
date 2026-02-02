@@ -1,0 +1,45 @@
+---
+# Example: Using Ansible Vault for sensitive data
+# 
+# This file shows how to structure your vault variables
+# 
+# To create an encrypted vault file:
+#   ansible-vault create inventories/production/group_vars/vault.yml
+#
+# To edit an encrypted vault file:
+#   ansible-vault edit inventories/production/group_vars/vault.yml
+#
+# To run a playbook with vault:
+#   ansible-playbook playbooks/site.yml --ask-vault-pass
+#
+# Or with a password file:
+#   ansible-playbook playbooks/site.yml --vault-password-file .vault_pass
+
+# Database passwords
+vault_mysql_root_password: "super_secret_root_pass_123"
+vault_mysql_password: "db_user_secure_pass_456"
+vault_postgres_password: "postgres_secure_pass_789"
+
+# Application secrets
+vault_app_secret_key: "application_secret_key_xyz"
+vault_jwt_secret: "jwt_signing_secret_abc"
+vault_api_key: "external_api_key_def"
+
+# Monitoring credentials
+vault_grafana_password: "grafana_admin_pass_ghi"
+
+# Docker registry credentials
+vault_docker_registry_user: "registry_user"
+vault_docker_registry_pass: "registry_password"
+
+# SSH keys (if needed)
+vault_deploy_ssh_key: |
+  -----BEGIN OPENSSH PRIVATE KEY-----
+  ... your private key content ...
+  -----END OPENSSH PRIVATE KEY-----
+
+# Example usage in your roles or playbooks:
+# 
+# env:
+#   DB_PASSWORD: "{{ vault_mysql_password }}"
+#   SECRET_KEY: "{{ vault_app_secret_key }}"

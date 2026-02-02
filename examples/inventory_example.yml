@@ -1,0 +1,45 @@
+---
+# Example: Custom inventory for production environment
+# Copy this to inventories/production/hosts.yml and customize
+
+all:
+  children:
+    # Web servers group
+    webservers:
+      hosts:
+        web1:
+          ansible_host: 192.168.1.10
+        web2:
+          ansible_host: 192.168.1.11
+      vars:
+        ansible_user: deploy
+        ansible_become: true
+    
+    # Database servers group
+    dbservers:
+      hosts:
+        db1:
+          ansible_host: 192.168.1.20
+        db2:
+          ansible_host: 192.168.1.21
+      vars:
+        ansible_user: deploy
+        ansible_become: true
+    
+    # Docker hosts group  
+    docker_hosts:
+      hosts:
+        docker1:
+          ansible_host: 192.168.1.30
+        docker2:
+          ansible_host: 192.168.1.31
+      vars:
+        ansible_user: deploy
+        ansible_become: true
+        docker_users:
+          - deploy
+          - app_user
+
+  vars:
+    # Global variables for all hosts
+    ansible_python_interpreter: /usr/bin/python3

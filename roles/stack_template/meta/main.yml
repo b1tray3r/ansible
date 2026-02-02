@@ -1,0 +1,12 @@
+---
+# Meta information for your custom stack role
+galaxy_info:
+  role_name: stack_template
+  author: Your Name
+  description: Template for creating custom Docker stacks
+  company:
+  license: MIT
+  min_ansible_version: "2.12"
+
+dependencies:
+  - role: docker

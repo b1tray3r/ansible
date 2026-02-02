@@ -1,0 +1,70 @@
+---
+# Example: Custom playbook for deploying multiple Docker stacks
+# This shows how to deploy different stacks to different hosts
+
+- name: Setup base system on all hosts
+  hosts: all
+  become: true
+  roles:
+    - common
+
+- name: Install Docker on Docker hosts
+  hosts: docker_hosts
+  become: true
+  roles:
+    - docker
+
+- name: Deploy web application stack
+  hosts: docker_hosts
+  become: true
+  vars:
+    # Override default values
+    web_stack_app_port: 8080
+    web_stack_db_password: "{{ vault_web_db_password }}"
+  roles:
+    - docker_web_stack
+
+- name: Deploy custom monitoring stack
+  hosts: docker_hosts
+  become: true
+  tasks:
+    - name: Create monitoring network
+      community.docker.docker_network:
+        name: monitoring
+        state: present
+
+    - name: Deploy Prometheus
+      community.docker.docker_container:
+        name: prometheus
+        image: prom/prometheus:latest
+        state: started
+        restart_policy: unless-stopped
+        networks:
+          - name: monitoring
+        ports:
+          - "9090:9090"
+        volumes:
+          - prometheus_data:/prometheus
+          - /etc/prometheus:/etc/prometheus:ro
+
+    - name: Deploy Grafana
+      community.docker.docker_container:
+        name: grafana
+        image: grafana/grafana:latest
+        state: started
+        restart_policy: unless-stopped
+        networks:
+          - name: monitoring
+        ports:
+          - "3000:3000"
+        volumes:
+          - grafana_data:/var/lib/grafana
+        env:
+          GF_SECURITY_ADMIN_PASSWORD: "{{ vault_grafana_password }}"
+          GF_INSTALL_PLUGINS: "grafana-clock-panel"
+
+    - name: Display monitoring URLs
+      ansible.builtin.debug:
+        msg:
+          - "Prometheus: http://{{ ansible_host }}:9090"
+          - "Grafana: http://{{ ansible_host }}:3000"

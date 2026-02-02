@@ -1,0 +1,30 @@
+---
+# Default variables for your custom stack
+# Customize these for your specific needs
+
+stack_network: my_stack_network
+
+stack_volumes:
+  - my_volume_1
+  - my_volume_2
+
+stack_images:
+  - nginx:alpine
+  - redis:alpine
+
+stack_containers:
+  - name: my_web
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - my_volume_1:/usr/share/nginx/html
+    env:
+      ENVIRONMENT: production
+      
+  - name: my_cache
+    image: redis:alpine
+    volumes:
+      - my_volume_2:/data
+    env:
+      REDIS_PASSWORD: changeme
