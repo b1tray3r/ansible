@@ -119,7 +119,13 @@ docker-volumes:
 
 # Stop all running containers
 docker-stop:
-    docker stop $(docker ps -q)
+    #!/usr/bin/env bash
+    containers=$(docker ps -q)
+    if [ -n "$containers" ]; then
+        docker stop $containers
+    else
+        echo "No running containers to stop"
+    fi
 
 # Remove all stopped containers
 docker-clean:
@@ -129,10 +135,15 @@ docker-clean:
 docker-clean-all:
     #!/usr/bin/env bash
     echo "This will remove all stopped containers, unused networks, dangling images, and unused volumes."
-    read -p "Are you sure? (y/N) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        docker system prune -a --volumes -f
+    if [ -t 0 ]; then
+        read -p "Are you sure? (y/N) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            docker system prune -a --volumes -f
+        fi
+    else
+        echo "Non-interactive mode detected. Use 'docker system prune -a --volumes -f' manually if needed."
+        exit 1
     fi
 
 # ============================================================================
@@ -203,21 +214,24 @@ vault-decrypt FILE:
 
 # Quick start: install collections and run setup
 quickstart:
-    @echo "==> Installing Ansible collections..."
+    #!/usr/bin/env bash
+    echo "==> Installing Ansible collections..."
     just install
-    @echo ""
-    @echo "==> Running setup playbook..."
+    echo ""
+    echo "==> Running setup playbook..."
     just setup
-    @echo ""
-    @echo "✓ Quickstart complete!"
-    @echo "Next step: Run 'just deploy' to deploy Docker stacks"
+    echo ""
+    echo "✓ Quickstart complete!"
+    echo "Next step: Run 'just deploy' to deploy Docker stacks"
 
 # Full reset: stop containers, clean Docker, and remove caches
 reset:
-    @echo "==> Stopping containers..."
-    -just docker-stop
-    @echo "==> Cleaning Docker..."
-    -just docker-clean
-    @echo "==> Cleaning caches..."
+    #!/usr/bin/env bash
+    set +e  # Don't exit on error
+    echo "==> Stopping containers..."
+    just docker-stop || true
+    echo "==> Cleaning Docker..."
+    just docker-clean || true
+    echo "==> Cleaning caches..."
     just clean
-    @echo "✓ Reset complete!"
+    echo "✓ Reset complete!"
