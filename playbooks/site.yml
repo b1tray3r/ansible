@@ -3,10 +3,14 @@
   hosts: localhost
   connection: local
   gather_facts: false
-  
+
   tasks:
-    - name: Print message
-      debug:
-        msg: |
-          Hello! This is the site playbook.
-          Please run specific playbooks located in the playbooks/ directory.
+    - name: Display available playbooks
+      ansible.builtin.debug:
+        msg: "Running all playbooks..."
+
+- name: Import DBeaver playbook
+  ansible.builtin.import_playbook: dbeaver.yml
+
+- name: Import Discord playbook
+  ansible.builtin.import_playbook: discord.yml
