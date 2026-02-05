@@ -2,3 +2,18 @@
 docker_install_compose: false
 docker_users:
   - "{{ ansible_user_id }}"
+
+# Taskwarrior and Timewarrior Configuration
+taskwarrior_force_update: false
+taskwarrior_config_overwrite: false
+
+timewarrior_version: "1.1.1"
+timewarrior_config_overwrite: false
+timewarrior_working_hours:
+  monday: "<5:00 >19:00"
+  tuesday: "<5:00 >19:00"
+  wednesday: "<5:00 >19:00"
+  thursday: "<5:00 >19:00"
+  friday: "<5:00 >19:00"
+  saturday: "<5:00 >19:00"
+  sunday: "<5:00 >19:00"

@@ -7,6 +7,10 @@ export PATH := "./venv/bin:" + env_var('PATH')
 run FILE="site":
     ansible-playbook playbooks/{{ FILE }}.yml -i inventories/localhost/hosts.yml --ask-become-pass
 
+[group('run')]
+taskwarrior:
+    ansible-playbook playbooks/task_timewarrior.yml -i inventories/localhost/hosts.yml --ask-become-pass
+
 [group('development')]
 install:
     sudo apt install python3-venv python3-pip -y

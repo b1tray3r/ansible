@@ -14,3 +14,6 @@
 
 - name: Import Discord playbook
   ansible.builtin.import_playbook: discord.yml
+
+- name: Import Taskwarrior and Timewarrior playbook
+  ansible.builtin.import_playbook: taskwarrior.yml

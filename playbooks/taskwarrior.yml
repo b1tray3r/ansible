@@ -1,0 +1,340 @@
+---
+- name: Install Taskwarrior and Timewarrior
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: true
+
+  vars:
+    taskwarrior_force_update: false
+    timewarrior_version: "1.7.1"
+    timewarrior_download_url: "https://github.com/GothenburgBitFactory/timewarrior/releases/download/v{{ timewarrior_version }}/timew-{{ timewarrior_version }}.tar.gz"
+    timewarrior_build_dir: "/tmp/timew-{{ timewarrior_version }}"
+    taskwarrior_user: "{{ ansible_facts['env']['SUDO_USER'] | default(ansible_facts['user_id']) }}"
+
+    # Taskwarrior configuration
+    taskwarrior_config_overwrite: true
+    taskwarrior_data_location: "~/.task"
+
+    # Timewarrior configuration
+    timewarrior_config_overwrite: true
+    timewarrior_working_hours:
+      monday: "<5:00 >19:00"
+      tuesday: "<5:00 >19:00"
+      wednesday: "<5:00 >19:00"
+      thursday: "<5:00 >19:00"
+      friday: "<5:00 >19:00"
+      saturday: "<5:00 >19:00"
+      sunday: "<5:00 >19:00"
+
+  tasks:
+    - name: Taskwarrior Installation Section
+      block:
+        - name: Check if Taskwarrior is already installed
+          ansible.builtin.command: dpkg -l taskwarrior
+          register: taskwarrior_installed
+          failed_when: false
+          changed_when: false
+          when: ansible_facts["os_family"] == "Debian"
+
+        - name: Get installed Taskwarrior version
+          ansible.builtin.shell: dpkg -l taskwarrior | grep '^ii' | awk '{print $3}'
+          register: taskwarrior_installed_version
+          failed_when: false
+          changed_when: false
+          when: ansible_facts["os_family"] == "Debian" and taskwarrior_installed.rc == 0
+
+        - name: Update apt cache
+          ansible.builtin.apt:
+            update_cache: true
+          when: ansible_facts["os_family"] == "Debian"
+          changed_when: false
+
+        - name: Install Taskwarrior
+          ansible.builtin.apt:
+            name: taskwarrior
+            state: present
+            update_cache: false
+          when: ansible_facts["os_family"] == "Debian" and (taskwarrior_installed.rc != 0 or taskwarrior_force_update)
+
+        - name: Get installed version after installation
+          ansible.builtin.shell: dpkg -l taskwarrior | grep '^ii' | awk '{print $3}'
+          register: taskwarrior_final_version
+          failed_when: false
+          changed_when: false
+          when: ansible_facts["os_family"] == "Debian" and (taskwarrior_installed.rc != 0 or taskwarrior_force_update)
+
+        - name: Print Taskwarrior installation status
+          ansible.builtin.debug:
+            msg: "Taskwarrior {{ taskwarrior_final_version.stdout | default('latest') }} has been {{ 'updated' if (taskwarrior_installed.rc == 0 and taskwarrior_force_update) else 'installed' }}"
+          when: ansible_facts["os_family"] == "Debian" and (taskwarrior_installed.rc != 0 or taskwarrior_force_update)
+
+        - name: Print Taskwarrior skip status
+          ansible.builtin.debug:
+            msg: "Taskwarrior {{ taskwarrior_installed_version.stdout | default('unknown') }} is already installed"
+          when: ansible_facts["os_family"] == "Debian" and taskwarrior_installed.rc == 0 and not taskwarrior_force_update
+
+    - name: Timewarrior Installation Section
+      block:
+        - name: Check if Timewarrior is already installed
+          ansible.builtin.command: which timew
+          register: timewarrior_installed
+          failed_when: false
+          changed_when: false
+
+        - name: Install build dependencies
+          ansible.builtin.apt:
+            name:
+              - cmake
+              - build-essential
+              - curl
+            state: present
+            update_cache: false
+          when: ansible_facts["os_family"] == "Debian"
+
+        - name: Fix cmake man directory permissions
+          ansible.builtin.file:
+            path: /usr/local/share/man
+            state: directory
+            owner: root
+            group: root
+            recurse: true
+          when: ansible_facts["os_family"] == "Debian"
+          ignore_errors: true
+
+        - name: Download Timewarrior source tarball
+          ansible.builtin.get_url:
+            url: "{{ timewarrior_download_url }}"
+            dest: "/tmp/timew-{{ timewarrior_version }}.tar.gz"
+            mode: "0644"
+            force: true
+          when: timewarrior_installed.rc != 0
+          changed_when: false
+
+        - name: Extract Timewarrior source
+          ansible.builtin.unarchive:
+            src: "/tmp/timew-{{ timewarrior_version }}.tar.gz"
+            dest: /tmp/
+            remote_src: true
+          when: timewarrior_installed.rc != 0
+
+        - name: Configure Timewarrior build
+          ansible.builtin.command:
+            cmd: cmake -DCMAKE_BUILD_TYPE=release .
+            chdir: "{{ timewarrior_build_dir }}"
+          when: timewarrior_installed.rc != 0
+
+        - name: Build Timewarrior
+          ansible.builtin.command:
+            cmd: make
+            chdir: "{{ timewarrior_build_dir }}"
+          when: timewarrior_installed.rc != 0
+
+        - name: Install Timewarrior
+          ansible.builtin.command:
+            cmd: make install
+            chdir: "{{ timewarrior_build_dir }}"
+          when: timewarrior_installed.rc != 0
+
+        - name: Clean up Timewarrior build files
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "/tmp/timew-{{ timewarrior_version }}.tar.gz"
+            - "{{ timewarrior_build_dir }}"
+          when: timewarrior_installed.rc != 0
+          changed_when: false
+
+        - name: Verify Timewarrior installation
+          ansible.builtin.command: timew --version
+          register: timewarrior_version_check
+          failed_when: false
+          changed_when: false
+          when: timewarrior_installed.rc != 0
+
+        - name: Print Timewarrior installation status
+          ansible.builtin.debug:
+            msg: "Timewarrior {{ timewarrior_version }} has been installed successfully"
+          when: timewarrior_installed.rc != 0
+
+        - name: Print Timewarrior skip status
+          ansible.builtin.debug:
+            msg: "Timewarrior is already installed"
+          when: timewarrior_installed.rc == 0
+
+    - name: Configuration Section
+      block:
+        - name: Lookup Taskwarrior user home
+          ansible.builtin.command: "getent passwd {{ taskwarrior_user }}"
+          register: taskwarrior_user_passwd
+          changed_when: false
+
+        - name: Set Taskwarrior user home
+          ansible.builtin.set_fact:
+            taskwarrior_user_home: "{{ taskwarrior_user_passwd.stdout.split(':')[5] }}"
+
+        - name: Check if Taskwarrior config exists
+          ansible.builtin.stat:
+            path: "{{ taskwarrior_user_home }}/.taskrc"
+          register: taskwarrior_config_check
+          become_user: "{{ taskwarrior_user }}"
+
+        - name: Check if Timewarrior config exists
+          ansible.builtin.stat:
+            path: "{{ taskwarrior_user_home }}/.timewarrior/timewarrior.cfg"
+          register: timewarrior_config_check
+          become_user: "{{ taskwarrior_user }}"
+
+        - name: Ensure .task directory exists
+          ansible.builtin.file:
+            path: "{{ taskwarrior_user_home }}/.task"
+            state: directory
+            mode: "0755"
+          become_user: "{{ taskwarrior_user }}"
+
+        - name: Create Taskwarrior configuration file
+          ansible.builtin.copy:
+            dest: "{{ taskwarrior_user_home }}/.taskrc"
+            content: |
+              # Taskwarrior configuration file
+              # Files
+              data.location=~/.task
+
+              # Show the tracking of time
+              journal.time=on
+              # Do not use color
+              color=off
+
+              # Shortcuts
+              alias.dailystatus=status:completed end.after:today all
+              alias.punt=modify wait:1d
+              alias.someday=mod +someday wait:someday
+
+              # Make searches case insensitive, personal preference
+              search.case.sensitive=no
+
+              # Set daily burndown as default
+              alias.burndown=burndown.daily
+
+              # Indicate the active task in reports
+              active.indicator=>
+
+              # task ready report default with custom columns
+              default.command=ready
+              report.ready.columns=id,start.active,depends.indicator,project,due.relative,description.desc
+              report.ready.labels= ,,Depends, Project, Due, Description
+            mode: "0644"
+            backup: yes
+          become_user: "{{ taskwarrior_user }}"
+          when: taskwarrior_config_overwrite or not taskwarrior_config_check.stat.exists
+
+        - name: Ensure .timewarrior directory exists
+          ansible.builtin.file:
+            path: "{{ taskwarrior_user_home }}/.timewarrior"
+            state: directory
+            mode: "0755"
+          become_user: "{{ taskwarrior_user }}"
+
+        - name: Create Timewarrior configuration file
+          ansible.builtin.copy:
+            dest: "{{ taskwarrior_user_home }}/.timewarrior/timewarrior.cfg"
+            content: |
+              # Timewarrior configuration file
+              # Point to Taskwarrior config for integration
+              taskrc = ~/.taskrc
+
+              # setup ooo times
+              define exclusions:
+              {% for day, hours in timewarrior_working_hours.items() %}
+                {{ day | lower }} = {{ hours }}
+              {% endfor %}
+            mode: "0644"
+            backup: yes
+          become_user: "{{ taskwarrior_user }}"
+          when: timewarrior_config_overwrite or not timewarrior_config_check.stat.exists
+
+    - name: Timewarrior Hook Integration
+      block:
+        - name: Ensure Taskwarrior hooks directory exists
+          ansible.builtin.file:
+            path: "{{ taskwarrior_user_home }}/.task/hooks"
+            state: directory
+            mode: "0755"
+          become_user: "{{ taskwarrior_user }}"
+
+        - name: Check if Timewarrior hook script exists in system locations
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop:
+            - "/usr/share/doc/timewarrior/ext/on-modify.timewarrior"
+            - "/usr/local/share/doc/timewarrior/ext/on-modify.timewarrior"
+            - "{{ timewarrior_build_dir }}/ext/on-modify.timewarrior"
+          register: hook_locations
+          when: timewarrior_installed.rc != 0
+
+        - name: Find existing hook script
+          ansible.builtin.set_fact:
+            hook_source: "{{ item.item }}"
+          loop: "{{ hook_locations.results }}"
+          when: timewarrior_installed.rc != 0 and item.stat.exists | default(false)
+
+        - name: Download Timewarrior hook script if not found locally
+          ansible.builtin.get_url:
+            url: "https://raw.githubusercontent.com/GothenburgBitFactory/timewarrior/v{{ timewarrior_version }}/ext/on-modify.timewarrior"
+            dest: "{{ taskwarrior_user_home }}/.task/hooks/on-modify.timewarrior"
+            mode: "0755"
+          become_user: "{{ taskwarrior_user }}"
+          when: hook_source is not defined
+
+        - name: Copy Timewarrior hook script from system location
+          ansible.builtin.copy:
+            src: "{{ hook_source }}"
+            dest: "{{ taskwarrior_user_home }}/.task/hooks/on-modify.timewarrior"
+            mode: "0755"
+            remote_src: true
+          become_user: "{{ taskwarrior_user }}"
+          when: hook_source is defined
+
+        - name: Verify hook script is executable
+          ansible.builtin.file:
+            path: "{{ taskwarrior_user_home }}/.task/hooks/on-modify.timewarrior"
+            mode: "0755"
+          become_user: "{{ taskwarrior_user }}"
+
+        - name: Enable hooks in Taskwarrior config
+          ansible.builtin.lineinfile:
+            path: "{{ taskwarrior_user_home }}/.taskrc"
+            regexp: "^#?\\s*hooks\\s*="
+            line: "hooks=on"
+            create: true
+          become_user: "{{ taskwarrior_user }}"
+
+        - name: Verify hook integration
+          ansible.builtin.debug:
+            msg: "Timewarrior hook installed at {{ taskwarrior_user_home }}/.task/hooks/on-modify.timewarrior"
+
+    - name: Installation Summary
+      ansible.builtin.debug:
+        msg: |
+          Taskwarrior and Timewarrior setup complete!
+
+          Taskwarrior is ready to use. Try:
+            task add "Your first task"
+            task
+            
+          Timewarrior is ready to use. Try:
+            timew start "Your first task"
+            timew summary
+            
+          Integration enabled:
+            - Taskwarrior hooks are now connected to Timewarrior
+            - When you run 'task start <id>' or 'task stop <id>', 
+              time tracking will automatically sync to Timewarrior
+            
+          Configuration files created:
+            - ~/.taskrc (Taskwarrior config)
+            - ~/.timewarrior/timewarrior.cfg (Timewarrior config)
+            - ~/.task/hooks/on-modify.timewarrior (Integration hook)
+            
+          Run 'just run task_timewarrior' to reinstall or update configurations.
