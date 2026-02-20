@@ -1,14 +1,6 @@
 ---
 - name: Install DBeaver Community Edition
-  hosts: localhost
-  connection: local
-  gather_facts: true
-  become: true
-
-  vars:
-    dbeaver_version: "latest"
-    force_update: false # Set to true to update even if already installed
-    dbeaver_github_release_url: "https://github.com/dbeaver/dbeaver/releases/download"
+  hosts: local
 
   tasks:
     - name: Resolve DBeaver version
@@ -55,13 +47,13 @@
 
         - name: Set update flag
           ansible.builtin.set_fact:
-            needs_update: "{{ dbeaver_installed.rc != 0 or force_update or ((version_compare.rc | default(1)) == 0) }}"
+            needs_update: "{{ dbeaver_installed.rc != 0 or ((version_compare.rc | default(1)) == 0) }}"
       when: ansible_facts["os_family"] == "Debian"
 
     - name: Download DBeaver .deb package
       ansible.builtin.get_url:
-        url: "{{ dbeaver_github_release_url }}/{{ dbeaver_effective_version }}/dbeaver-ce_{{ dbeaver_effective_version }}_amd64.deb"
-        dest: "/tmp/dbeaver-ce_{{ dbeaver_effective_version }}_amd64.deb"
+        url: "{{ dbeaver_github_release_url }}/{{ dbeaver_effective_version }}/dbeaver-ce-{{ dbeaver_effective_version }}-linux-x86_64.deb"
+        dest: "/tmp/dbeaver-ce-{{ dbeaver_effective_version }}-linux-x86_64.deb"
         mode: "0644"
         force: true
       changed_when: false
@@ -69,13 +61,13 @@
 
     - name: Install DBeaver from .deb package
       ansible.builtin.apt:
-        deb: "/tmp/dbeaver-ce_{{ dbeaver_effective_version }}_amd64.deb"
+        deb: "/tmp/dbeaver-ce-{{ dbeaver_effective_version }}-linux-x86_64.deb"
         state: present
       when: ansible_facts["os_family"] == "Debian" and needs_update
 
     - name: Clean up downloaded .deb file
       ansible.builtin.file:
-        path: "/tmp/dbeaver-ce_{{ dbeaver_effective_version }}_amd64.deb"
+        path: "/tmp/dbeaver-ce-{{ dbeaver_effective_version }}-linux-x86_64.deb"
         state: absent
       changed_when: false
       when: ansible_facts["os_family"] == "Debian"

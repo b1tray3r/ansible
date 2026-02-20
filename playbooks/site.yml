@@ -1,8 +1,6 @@
 ---
 - name: Site Playbook
-  hosts: localhost
-  connection: local
-  gather_facts: false
+  hosts: local
 
   tasks:
     - name: Display available playbooks
@@ -14,3 +12,9 @@
 
 - name: Import Discord playbook
   ansible.builtin.import_playbook: discord.yml
+
+- name: Import LazyGit playbook
+  ansible.builtin.import_playbook: lazygit.yml
+
+- name: Import Bruno playbook
+  ansible.builtin.import_playbook: bruno.yml

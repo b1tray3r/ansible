@@ -5,7 +5,7 @@ export PATH := "./venv/bin:" + env_var('PATH')
 
 [group('run')]
 run FILE="site":
-    ansible-playbook playbooks/{{ FILE }}.yml -i inventories/localhost/hosts.yml --ask-become-pass
+    ansible-playbook playbooks/{{ FILE }}.yml -i inventories/hosts.yml --ask-become-pass
 
 [group('development')]
 install:

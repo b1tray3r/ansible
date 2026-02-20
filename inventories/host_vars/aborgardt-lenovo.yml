@@ -1,0 +1,18 @@
+---
+
+# DBeaver: https://dbeaver.io/
+# Set DBeaver version to latest to look up the latest release tag from GitHub
+dbeaver_version: "latest"
+dbeaver_github_release_url: "https://github.com/dbeaver/dbeaver/releases/download"
+
+# Discord: https://discord.com/
+discord_download_url: "https://discord.com/api/download?platform=linux&format=deb"
+discord_deb_path: "/tmp/discord.deb"
+
+# Bruno: https://docs.usebruno.com/
+bruno_version: "latest"
+bruno_github_release_url: "https://github.com/usebruno/bruno/releases/download"
+
+# Lazygit: https://github.com/jesseduffield/lazygit
+lazygit_version: "latest"
+lazygit_github_release_url: "https://github.com/jesseduffield/lazygit/releases/download"

@@ -1,14 +1,6 @@
 ---
 - name: Install Discord
-  hosts: localhost
-  connection: local
-  gather_facts: true
-  become: true
-
-  vars:
-    discord_download_url: "https://discord.com/api/download?platform=linux&format=deb"
-    discord_deb_path: "/tmp/discord.deb"
-    force_update: false # Set to true to update even if already installed
+  hosts: local
 
   tasks:
     - name: Check if Discord is already installed
@@ -51,7 +43,7 @@
 
         - name: Set update flag
           ansible.builtin.set_fact:
-            needs_update: "{{ discord_installed.rc != 0 or force_update or ((version_compare.rc | default(1)) == 0) }}"
+            needs_update: "{{ discord_installed.rc != 0 or ((version_compare.rc | default(1)) == 0) }}"
       when: ansible_facts["os_family"] == "Debian"
 
     - name: Install Discord from .deb package
