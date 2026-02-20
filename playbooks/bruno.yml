@@ -15,26 +15,25 @@
         - name: Set effective Bruno version
           ansible.builtin.set_fact:
             Bruno_effective_version: "{{ Bruno_latest_release.json.tag_name }}"
-      when: ansible_facts["os_family"] == "Debian" and bruno_version == "latest"
+      when: bruno_version == "latest"
 
     - name: Set effective Bruno version (explicit)
       ansible.builtin.set_fact:
         Bruno_effective_version: "{{ bruno_version }}"
-      when: ansible_facts["os_family"] == "Debian" and bruno_version != "latest"
+      when: bruno_version != "latest"
 
     - name: Check if Bruno is already installed
       ansible.builtin.command: dpkg -l bruno
       register: Bruno_installed
       failed_when: false
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian"
 
     - name: Get installed Bruno version
       ansible.builtin.shell: dpkg -l bruno | grep '^ii' | awk '{print $3}'
       register: installed_version
       failed_when: false
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian" and Bruno_installed.rc == 0
+      when: Bruno_installed.rc == 0
 
     - name: Determine if update is needed
       block:
@@ -48,7 +47,7 @@
         - name: Set update flag
           ansible.builtin.set_fact:
             needs_update: "{{ Bruno_installed.rc != 0 or ((version_compare.rc | default(1)) == 0) }}"
-      when: ansible_facts["os_family"] == "Debian"
+      when: installed_version is defined
 
     - name: Download Bruno .deb package
       ansible.builtin.get_url:
@@ -56,25 +55,24 @@
         dest: "/tmp/Bruno_{{ Bruno_effective_version | regex_replace('^v', '') }}_amd64_linux.deb"
         force: true
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian" and needs_update
+      when: needs_update
 
     - name: Install Bruno from .deb package
       ansible.builtin.command: dpkg -i /tmp/Bruno_{{ Bruno_effective_version | regex_replace('^v', '') }}_amd64_linux.deb
-      when: ansible_facts["os_family"] == "Debian" and needs_update
+      when: needs_update
 
     - name: Clean up downloaded .deb file
       ansible.builtin.file:
         path: "/tmp/Bruno_{{ Bruno_effective_version | regex_replace('^v', '') }}_amd64_linux.deb"
         state: absent
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian"
 
     - name: Print installation status
       ansible.builtin.debug:
         msg: "Bruno {{ Bruno_effective_version }} has been {{ 'updated' if (Bruno_installed.rc == 0 and needs_update) else 'installed' }}"
-      when: ansible_facts["os_family"] == "Debian" and needs_update
+      when: needs_update
 
     - name: Print skip status
       ansible.builtin.debug:
         msg: "Bruno {{ installed_version.stdout | default('unknown') }} is already up to date"
-      when: ansible_facts["os_family"] == "Debian" and not needs_update
+      when: not needs_update

@@ -3,6 +3,12 @@
   hosts: local
 
   tasks:
+    - name: Check if running on supported OS
+      ansible.builtin.assert:
+        that:
+          - ansible_facts["os_family"] == "Debian"
+        fail_msg: "This playbook is only supported on Debian-based systems."
+
     - name: Display available playbooks
       ansible.builtin.debug:
         msg: "Running all playbooks..."

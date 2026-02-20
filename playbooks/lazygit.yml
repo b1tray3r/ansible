@@ -15,12 +15,12 @@
         - name: Set effective LazyGit version
           ansible.builtin.set_fact:
             LazyGit_effective_version: "{{ LazyGit_latest_release.json.tag_name }}"
-      when: ansible_facts["os_family"] == "Debian" and lazygit_version == "latest"
+      when: lazygit_version == "latest"
 
     - name: Set effective LazyGit version (explicit)
       ansible.builtin.set_fact:
         LazyGit_effective_version: "{{ lazygit_version }}"
-      when: ansible_facts["os_family"] == "Debian" and lazygit_version != "latest"
+      when: lazygit_version != "latest"
 
     - name: Check if LazyGit is already installed
       ansible.builtin.command: dpkg -l LazyGit-ce
@@ -34,7 +34,7 @@
       register: installed_version
       failed_when: false
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian" and LazyGit_installed.rc == 0
+      when: LazyGit_installed.rc == 0
 
     - name: Determine if update is needed
       block:
@@ -48,7 +48,7 @@
         - name: Set update flag
           ansible.builtin.set_fact:
             needs_update: "{{ LazyGit_installed.rc != 0 or ((version_compare.rc | default(1)) == 0) }}"
-      when: ansible_facts["os_family"] == "Debian"
+      when: installed_version is defined
 
     - name: Download LazyGit .tar.gz package
       ansible.builtin.get_url:
@@ -56,25 +56,24 @@
         dest: "/tmp/lazygit_{{ LazyGit_effective_version | regex_replace('^v', '') }}_linux_x86_64.tar.gz"
         force: true
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian" and needs_update
+      when: needs_update
 
     - name: Install LazyGit from .tar.gz package
       ansible.builtin.command: tar -xzf /tmp/lazygit_{{ LazyGit_effective_version | regex_replace('^v', '') }}_linux_x86_64.tar.gz -C /usr/local/bin
-      when: ansible_facts["os_family"] == "Debian" and needs_update
+      when: needs_update
 
     - name: Clean up downloaded .tar.gz file
       ansible.builtin.file:
         path: "/tmp/lazygit_{{ LazyGit_effective_version | regex_replace('^v', '') }}_linux_x86_64.tar.gz"
         state: absent
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian"
 
     - name: Print installation status
       ansible.builtin.debug:
         msg: "LazyGit {{ LazyGit_effective_version }} has been {{ 'updated' if (LazyGit_installed.rc == 0 and needs_update) else 'installed' }}"
-      when: ansible_facts["os_family"] == "Debian" and needs_update
+      when: needs_update
 
     - name: Print skip status
       ansible.builtin.debug:
         msg: "LazyGit {{ installed_version.stdout | default('unknown') }} is already up to date"
-      when: ansible_facts["os_family"] == "Debian" and not needs_update
+      when: not needs_update

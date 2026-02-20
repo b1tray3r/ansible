@@ -15,26 +15,25 @@
         - name: Set effective DBeaver version
           ansible.builtin.set_fact:
             dbeaver_effective_version: "{{ dbeaver_latest_release.json.tag_name }}"
-      when: ansible_facts["os_family"] == "Debian" and dbeaver_version == "latest"
+      when: dbeaver_version == "latest"
 
     - name: Set effective DBeaver version (explicit)
       ansible.builtin.set_fact:
         dbeaver_effective_version: "{{ dbeaver_version }}"
-      when: ansible_facts["os_family"] == "Debian" and dbeaver_version != "latest"
+      when: dbeaver_version != "latest"
 
     - name: Check if DBeaver is already installed
       ansible.builtin.command: dpkg -l dbeaver-ce
       register: dbeaver_installed
       failed_when: false
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian"
 
     - name: Get installed DBeaver version
       ansible.builtin.shell: dpkg -l dbeaver-ce | grep '^ii' | awk '{print $3}'
       register: installed_version
       failed_when: false
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian" and dbeaver_installed.rc == 0
+      when: dbeaver_installed.rc == 0
 
     - name: Determine if update is needed
       block:
@@ -48,7 +47,7 @@
         - name: Set update flag
           ansible.builtin.set_fact:
             needs_update: "{{ dbeaver_installed.rc != 0 or ((version_compare.rc | default(1)) == 0) }}"
-      when: ansible_facts["os_family"] == "Debian"
+      when: installed_version is defined
 
     - name: Download DBeaver .deb package
       ansible.builtin.get_url:
@@ -57,13 +56,13 @@
         mode: "0644"
         force: true
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian" and needs_update
+      when: needs_update
 
     - name: Install DBeaver from .deb package
       ansible.builtin.apt:
         deb: "/tmp/dbeaver-ce-{{ dbeaver_effective_version }}-linux-x86_64.deb"
         state: present
-      when: ansible_facts["os_family"] == "Debian" and needs_update
+      when: needs_update
 
     - name: Clean up downloaded .deb file
       ansible.builtin.file:
@@ -75,9 +74,9 @@
     - name: Print installation status
       ansible.builtin.debug:
         msg: "DBeaver {{ dbeaver_effective_version }} has been {{ 'updated' if (dbeaver_installed.rc == 0 and needs_update) else 'installed' }}"
-      when: ansible_facts["os_family"] == "Debian" and needs_update
+      when: needs_update
 
     - name: Print skip status
       ansible.builtin.debug:
         msg: "DBeaver {{ installed_version.stdout | default('unknown') }} is already up to date"
-      when: ansible_facts["os_family"] == "Debian" and not needs_update
+      when: not needs_update

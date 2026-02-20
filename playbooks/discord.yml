@@ -15,7 +15,7 @@
       register: installed_version
       failed_when: false
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian" and discord_installed.rc == 0
+      when: discord_installed.rc == 0
 
     - name: Download Discord .deb package
       ansible.builtin.get_url:
@@ -24,13 +24,11 @@
         mode: "0644"
         force: true
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian"
 
     - name: Get version from downloaded package
       ansible.builtin.shell: "dpkg --info {{ discord_deb_path }} | grep '^\\s*Version:' | awk '{print $2}'"
       register: available_version
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian"
 
     - name: Determine if update is needed
       block:
@@ -44,13 +42,13 @@
         - name: Set update flag
           ansible.builtin.set_fact:
             needs_update: "{{ discord_installed.rc != 0 or ((version_compare.rc | default(1)) == 0) }}"
-      when: ansible_facts["os_family"] == "Debian"
+      when: installed_version is defined
 
     - name: Install Discord from .deb package
       ansible.builtin.apt:
         deb: "{{ discord_deb_path }}"
         state: present
-      when: ansible_facts["os_family"] == "Debian" and needs_update
+      when: needs_update
 
     - name: Clean up downloaded .deb file
       ansible.builtin.file:
@@ -62,9 +60,9 @@
     - name: Print installation status
       ansible.builtin.debug:
         msg: "Discord {{ available_version.stdout | default('latest') }} has been {{ 'updated' if (discord_installed.rc == 0 and needs_update) else 'installed' }}"
-      when: ansible_facts["os_family"] == "Debian" and needs_update
+      when: needs_update
 
     - name: Print skip status
       ansible.builtin.debug:
         msg: "Discord {{ installed_version.stdout | default('unknown') }} is already up to date"
-      when: ansible_facts["os_family"] == "Debian" and not needs_update
+      when: not needs_update
