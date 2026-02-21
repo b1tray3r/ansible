@@ -3,13 +3,13 @@
   hosts: local
 
   tasks:
-    - name: Check if running on supported OS
+    - name: Verify supported OS
       ansible.builtin.assert:
         that:
           - ansible_facts["os_family"] == "Debian"
         fail_msg: "This playbook is only supported on Debian-based systems."
 
-    - name: Display available playbooks
+    - name: Report selected playbooks
       ansible.builtin.debug:
         msg: "Running all playbooks..."
 
@@ -24,3 +24,6 @@
 
 - name: Import Bruno playbook
   ansible.builtin.import_playbook: bruno.yml
+
+- name: Import Zed playbook
+  ansible.builtin.import_playbook: zed.yml

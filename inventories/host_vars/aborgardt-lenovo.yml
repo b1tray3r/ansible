@@ -16,3 +16,13 @@ bruno_github_release_url: "https://github.com/usebruno/bruno/releases/download"
 # Lazygit: https://github.com/jesseduffield/lazygit
 lazygit_version: "latest"
 lazygit_github_release_url: "https://github.com/jesseduffield/lazygit/releases/download"
+lazygit_release_package_url: "{{ lazygit_github_release_url }}/{{ release_version }}/lazygit_{{ LazyGit_target_version }}_linux_x86_64.tar.gz"
+lazygit_download_target_file: "/tmp/lazygit_{{ LazyGit_target_version }}_linux_x86_64.tar.gz"
+lazygit_install_path: "/usr/local/bin/"
+
+# Zed: https://zed.dev/
+zed_version: "latest"
+zed_github_release_url: "https://github.com/zed-industries/zed/releases/download"
+zed_release_package_url: "{{ zed_github_release_url }}/{{ release_version }}/zed-linux-x86_64.tar.gz"
+zed_download_target_file: "/tmp/zed-linux-x86_64.tar.gz"
+zed_install_path: "/opt/"

@@ -3,76 +3,40 @@
   hosts: local
 
   tasks:
-    - name: Resolve Bruno version
+    - name: Resolve target version
+      include_tasks: utils/resolveReleaseVersion.yml
+      vars:
+        requested_version: "{{ bruno_version }}"
+        release_repo_owner: "usebruno"
+        release_repo_name: "bruno"
+
+    - name: Determine update requirement
+      include_tasks: utils/dpkgNeedsUpdate.yml
+      vars:
+        dpkg_package_name: "bruno"
+        dpkg_target_version: "{{ target_version }}"
+
+    - name: Install or update Bruno
       block:
-        - name: Fetch latest Bruno release tag from GitHub
-          ansible.builtin.uri:
-            url: https://api.github.com/repos/usebruno/bruno/releases/latest
-            return_content: true
-          register: Bruno_latest_release
+        - name: Download package
+          ansible.builtin.get_url:
+            url: "{{ bruno_github_release_url }}/{{ effective_release_version }}/Bruno_{{ target_version }}_amd64_linux.deb"
+            dest: "/tmp/Bruno_{{ target_version }}_amd64_linux.deb"
+            force: true
           changed_when: false
 
-        - name: Set effective Bruno version
-          ansible.builtin.set_fact:
-            Bruno_effective_version: "{{ Bruno_latest_release.json.tag_name }}"
-      when: bruno_version == "latest"
-
-    - name: Set effective Bruno version (explicit)
-      ansible.builtin.set_fact:
-        Bruno_effective_version: "{{ bruno_version }}"
-      when: bruno_version != "latest"
-
-    - name: Check if Bruno is already installed
-      ansible.builtin.command: dpkg -l bruno
-      register: Bruno_installed
-      failed_when: false
-      changed_when: false
-
-    - name: Get installed Bruno version
-      ansible.builtin.shell: dpkg -l bruno | grep '^ii' | awk '{print $3}'
-      register: installed_version
-      failed_when: false
-      changed_when: false
-      when: Bruno_installed.rc == 0
-
-    - name: Determine if update is needed
-      block:
-        - name: Compare installed version with latest tag
-          ansible.builtin.command: "dpkg --compare-versions {{ installed_version.stdout | default('0') }} lt {{ Bruno_effective_version }}"
-          register: version_compare
-          failed_when: false
-          changed_when: false
-          when: Bruno_installed.rc == 0
-
-        - name: Set update flag
-          ansible.builtin.set_fact:
-            needs_update: "{{ Bruno_installed.rc != 0 or ((version_compare.rc | default(1)) == 0) }}"
-      when: installed_version is defined
-
-    - name: Download Bruno .deb package
-      ansible.builtin.get_url:
-        url: "{{ bruno_github_release_url }}/{{ Bruno_effective_version }}/Bruno_{{ Bruno_effective_version | regex_replace('^v', '') }}_amd64_linux.deb"
-        dest: "/tmp/Bruno_{{ Bruno_effective_version | regex_replace('^v', '') }}_amd64_linux.deb"
-        force: true
-      changed_when: false
+        - name: Install from downloaded file
+          include_tasks: utils/installFromFile.yml
+          vars:
+            download_target_file: "/tmp/Bruno_{{ target_version }}_amd64_linux.deb"
       when: needs_update
 
-    - name: Install Bruno from .deb package
-      ansible.builtin.command: dpkg -i /tmp/Bruno_{{ Bruno_effective_version | regex_replace('^v', '') }}_amd64_linux.deb
-      when: needs_update
-
-    - name: Clean up downloaded .deb file
-      ansible.builtin.file:
-        path: "/tmp/Bruno_{{ Bruno_effective_version | regex_replace('^v', '') }}_amd64_linux.deb"
-        state: absent
-      changed_when: false
-
-    - name: Print installation status
+    - name: Report installation status
       ansible.builtin.debug:
-        msg: "Bruno {{ Bruno_effective_version }} has been {{ 'updated' if (Bruno_installed.rc == 0 and needs_update) else 'installed' }}"
+        msg: "Bruno {{ target_version }} has been installed or updated"
       when: needs_update
 
-    - name: Print skip status
+    - name: Report up-to-date status
       ansible.builtin.debug:
-        msg: "Bruno {{ installed_version.stdout | default('unknown') }} is already up to date"
+        msg: "Bruno {{ installed_version }} is already up to date"
       when: not needs_update

@@ -3,77 +3,54 @@
   hosts: local
 
   tasks:
-    - name: Resolve LazyGit version
-      block:
-        - name: Fetch latest LazyGit release tag from GitHub
-          ansible.builtin.uri:
-            url: https://api.github.com/repos/jesseduffield/lazygit/releases/latest
-            return_content: true
-          register: LazyGit_latest_release
-          changed_when: false
+    - name: Resolve target version
+      include_tasks: utils/resolveReleaseVersion.yml
+      vars:
+        requested_version: "{{ lazygit_version }}"
+        release_repo_owner: "jesseduffield"
+        release_repo_name: "lazygit"
 
-        - name: Set effective LazyGit version
-          ansible.builtin.set_fact:
-            LazyGit_effective_version: "{{ LazyGit_latest_release.json.tag_name }}"
-      when: lazygit_version == "latest"
+    - name: Get installed version
+      ansible.builtin.command: lazygit --version
+      register: lazygit_version_output
+      failed_when: false
+      changed_when: false
 
-    - name: Set effective LazyGit version (explicit)
+    - name: Parse installed version
       ansible.builtin.set_fact:
-        LazyGit_effective_version: "{{ lazygit_version }}"
-      when: lazygit_version != "latest"
-
-    - name: Check if LazyGit is already installed
-      ansible.builtin.command: dpkg -l LazyGit-ce
-      register: LazyGit_installed
-      failed_when: false
-      changed_when: false
-      when: ansible_facts["os_family"] == "Debian"
-
-    - name: Get installed LazyGit version
-      ansible.builtin.shell: dpkg -l LazyGit-ce | grep '^ii' | awk '{print $3}'
-      register: installed_version
-      failed_when: false
-      changed_when: false
-      when: LazyGit_installed.rc == 0
+        installed_version: "{{ (lazygit_version_output.stdout | default('') | regex_findall('version=([^,]+)') | first) | default('') }}"
 
     - name: Determine if update is needed
+      ansible.builtin.set_fact:
+        needs_update: >-
+          {{
+            lazygit_version_output.rc != 0
+            or installed_version | length == 0
+            or (installed_version is version(target_version, '<', version_type='semver'))
+          }}
+
+    - name: Install or update LazyGit
       block:
-        - name: Compare installed version with latest tag
-          ansible.builtin.command: "dpkg --compare-versions {{ installed_version.stdout | default('0') }} lt {{ LazyGit_effective_version }}"
-          register: version_compare
-          failed_when: false
+        - name: Download package
+          ansible.builtin.get_url:
+            url: "{{ lazygit_github_release_url }}/{{ effective_release_version }}/lazygit_{{ target_version }}_linux_x86_64.tar.gz"
+            dest: "/tmp/lazygit_{{ target_version }}_linux_x86_64.tar.gz"
+            force: true
           changed_when: false
-          when: LazyGit_installed.rc == 0
 
-        - name: Set update flag
-          ansible.builtin.set_fact:
-            needs_update: "{{ LazyGit_installed.rc != 0 or ((version_compare.rc | default(1)) == 0) }}"
-      when: installed_version is defined
-
-    - name: Download LazyGit .tar.gz package
-      ansible.builtin.get_url:
-        url: "{{ lazygit_github_release_url }}/{{ LazyGit_effective_version }}/lazygit_{{ LazyGit_effective_version | regex_replace('^v', '') }}_linux_x86_64.tar.gz"
-        dest: "/tmp/lazygit_{{ LazyGit_effective_version | regex_replace('^v', '') }}_linux_x86_64.tar.gz"
-        force: true
-      changed_when: false
+        - name: Install from downloaded file
+          include_tasks: utils/installFromFile.yml
+          vars:
+            download_target_file: "/tmp/lazygit_{{ target_version }}_linux_x86_64.tar.gz"
+            install_path: "{{ lazygit_install_path }}"
       when: needs_update
 
-    - name: Install LazyGit from .tar.gz package
-      ansible.builtin.command: tar -xzf /tmp/lazygit_{{ LazyGit_effective_version | regex_replace('^v', '') }}_linux_x86_64.tar.gz -C /usr/local/bin
-      when: needs_update
-
-    - name: Clean up downloaded .tar.gz file
-      ansible.builtin.file:
-        path: "/tmp/lazygit_{{ LazyGit_effective_version | regex_replace('^v', '') }}_linux_x86_64.tar.gz"
-        state: absent
-      changed_when: false
-
-    - name: Print installation status
+    - name: Report installation status
       ansible.builtin.debug:
-        msg: "LazyGit {{ LazyGit_effective_version }} has been {{ 'updated' if (LazyGit_installed.rc == 0 and needs_update) else 'installed' }}"
+        msg: "LazyGit {{ target_version }} has been installed or updated"
       when: needs_update
 
-    - name: Print skip status
+    - name: Report up-to-date status
       ansible.builtin.debug:
-        msg: "LazyGit {{ installed_version.stdout | default('unknown') }} is already up to date"
+        msg: "LazyGit {{ installed_version }} is already up to date"
       when: not needs_update

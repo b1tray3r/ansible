@@ -3,66 +3,83 @@
   hosts: local
 
   tasks:
-    - name: Check if Discord is already installed
-      ansible.builtin.command: dpkg -l discord
-      register: discord_installed
+    - name: Probe download redirect (no download)
+      ansible.builtin.uri:
+        url: "{{ discord_download_url }}"
+        method: GET
+        follow_redirects: none
+        return_content: false
+        status_code:
+          - 301
+          - 302
+          - 303
+          - 307
+          - 308
+      register: discord_probe
+      changed_when: false
+
+    - name: Set redirect source
+      ansible.builtin.set_fact:
+        discord_redirect_source: "{{ (discord_probe.location | default('')) ~ ' ' ~ (discord_probe.url | default('')) ~ ' ' ~ (discord_probe.body | default('')) }}"
+
+    - name: Parse available version from redirect URL
+      ansible.builtin.set_fact:
+        available_version: "{{ (discord_redirect_source | regex_findall('discord-([0-9]+\\.[0-9]+\\.[0-9]+)\\.deb') | first) | default('') }}"
+
+    - name: Set target version
+      ansible.builtin.set_fact:
+        target_version: "{{ available_version }}"
+
+    - name: Query installed version for fallback decision
+      ansible.builtin.command:
+        argv:
+          - dpkg-query
+          - -W
+          - -f=${Version}
+          - discord
+      register: discord_installed_fallback_query
       failed_when: false
       changed_when: false
-      when: ansible_facts["os_family"] == "Debian"
+      when: available_version | length == 0
 
-    - name: Get installed Discord version
-      ansible.builtin.shell: dpkg -l discord | grep '^ii' | awk '{print $3}'
-      register: installed_version
-      failed_when: false
-      changed_when: false
-      when: discord_installed.rc == 0
+    - name: Set fallback update flag when version cannot be detected
+      ansible.builtin.set_fact:
+        needs_update: "{{ discord_installed_fallback_query.rc != 0 }}"
+      when: available_version | length == 0
 
-    - name: Download Discord .deb package
+    - name: Report parse fallback
+      ansible.builtin.debug:
+        msg: "Could not parse Discord version from URL metadata, installing only if Discord is not installed"
+      when: available_version | length == 0
+
+    - name: Determine update requirement
+      include_tasks: utils/dpkgNeedsUpdate.yml
+      vars:
+        dpkg_package_name: "discord"
+        dpkg_target_version: "{{ target_version }}"
+      when: available_version | length > 0
+
+    - name: Download package
       ansible.builtin.get_url:
         url: "{{ discord_download_url }}"
         dest: "{{ discord_deb_path }}"
         mode: "0644"
         force: true
       changed_when: false
-
-    - name: Get version from downloaded package
-      ansible.builtin.shell: "dpkg --info {{ discord_deb_path }} | grep '^\\s*Version:' | awk '{print $2}'"
-      register: available_version
-      changed_when: false
-
-    - name: Determine if update is needed
-      block:
-        - name: Compare installed version with available version
-          ansible.builtin.command: "dpkg --compare-versions {{ installed_version.stdout | default('0') }} lt {{ available_version.stdout | default('0') }}"
-          register: version_compare
-          failed_when: false
-          changed_when: false
-          when: discord_installed.rc == 0
-
-        - name: Set update flag
-          ansible.builtin.set_fact:
-            needs_update: "{{ discord_installed.rc != 0 or ((version_compare.rc | default(1)) == 0) }}"
-      when: installed_version is defined
-
-    - name: Install Discord from .deb package
-      ansible.builtin.apt:
-        deb: "{{ discord_deb_path }}"
-        state: present
       when: needs_update
 
-    - name: Clean up downloaded .deb file
-      ansible.builtin.file:
-        path: "{{ discord_deb_path }}"
-        state: absent
-      changed_when: false
-      when: ansible_facts["os_family"] == "Debian"
-
-    - name: Print installation status
-      ansible.builtin.debug:
-        msg: "Discord {{ available_version.stdout | default('latest') }} has been {{ 'updated' if (discord_installed.rc == 0 and needs_update) else 'installed' }}"
+    - name: Install from downloaded file
+      include_tasks: utils/installFromFile.yml
+      vars:
+        download_target_file: "{{ discord_deb_path }}"
       when: needs_update
 
-    - name: Print skip status
+    - name: Report installation status
       ansible.builtin.debug:
-        msg: "Discord {{ installed_version.stdout | default('unknown') }} is already up to date"
+        msg: "Discord {{ available_version | default('latest') }} has been installed or updated"
+      when: needs_update
+
+    - name: Report up-to-date status
+      ansible.builtin.debug:
+        msg: "Discord {{ installed_version | default('unknown') }} is already up to date"
       when: not needs_update

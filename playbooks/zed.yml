@@ -1,0 +1,80 @@
+---
+- name: Install Zed
+  hosts: local
+
+  tasks:
+    - name: Resolve target version
+      include_tasks: utils/resolveReleaseVersion.yml
+      vars:
+        requested_version: "{{ zed_version }}"
+        release_repo_owner: "zed-industries"
+        release_repo_name: "zed"
+
+    - name: Get installed version output
+      ansible.builtin.shell: "{{ zed_install_path }}zed.app/bin/zed --version 2>&1 || /usr/local/bin/zed --version 2>&1 || zed --version 2>&1 || true"
+      register: zed_version_output
+      failed_when: false
+      changed_when: false
+      become: false
+
+    - name: Set installed version
+      ansible.builtin.set_fact:
+        installed_version: "{{ (zed_version_output.stdout | default('') | regex_findall('([0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)') | first) | default('') }}"
+
+    - name: Set default update flag
+      ansible.builtin.set_fact:
+        needs_update: "{{ installed_version | length == 0 }}"
+
+    - name: Determine if update is needed
+      block:
+        - name: Compare installed version with target
+          ansible.builtin.command:
+            argv:
+              - dpkg
+              - --compare-versions
+              - "{{ installed_version }}"
+              - lt
+              - "{{ target_version }}"
+          register: zed_version_compare
+          failed_when: false
+          changed_when: false
+          when: installed_version | length > 0
+
+        - name: Set update flag
+          ansible.builtin.set_fact:
+            needs_update: "{{ (zed_version_compare.rc | default(1)) == 0 }}"
+          when: installed_version | length > 0
+
+    - name: Install or update Zed
+      block:
+        - name: Download package
+          ansible.builtin.get_url:
+            url: "{{ zed_github_release_url }}/{{ effective_release_version }}/zed-linux-x86_64.tar.gz"
+            dest: "/tmp/zed-linux-x86_64.tar.gz"
+            force: true
+          changed_when: false
+
+        - name: Install from downloaded file
+          include_tasks: utils/installFromFile.yml
+          vars:
+            download_target_file: "/tmp/zed-linux-x86_64.tar.gz"
+            install_path: "{{ zed_install_path }}"
+      when: needs_update
+
+    - name: Report installation status
+      ansible.builtin.debug:
+        msg: "Zed {{ target_version }} has been installed or updated"
+      when: needs_update
+
+    - name: Add zed to PATH via symlink
+      ansible.builtin.file:
+        src: "{{ zed_install_path }}zed.app/bin/zed"
+        dest: "/usr/local/bin/zed"
+        state: link
+        force: true
+      when: needs_update
+
+    - name: Report up-to-date status
+      ansible.builtin.debug:
+        msg: "Zed {{ installed_version }} is already up to date"
+      when: not needs_update

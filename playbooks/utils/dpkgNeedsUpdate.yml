@@ -1,0 +1,43 @@
+---
+- name: Query installed version
+  ansible.builtin.command:
+    argv:
+      - dpkg-query
+      - -W
+      - -f=${Version}
+      - "{{ dpkg_package_name }}"
+  register: dpkg_installed_query
+  failed_when: false
+  changed_when: false
+
+- name: Set installed raw version
+  ansible.builtin.set_fact:
+    installed_version_raw: "{{ dpkg_installed_query.stdout | default('') | trim }}"
+
+- name: Normalize installed version
+  ansible.builtin.set_fact:
+    installed_version: "{{ installed_version_raw | regex_replace('-[^-]+$', '') }}"
+
+- name: Set default update flag
+  ansible.builtin.set_fact:
+    needs_update: "{{ dpkg_installed_query.rc != 0 }}"
+
+- name: Determine if update is needed
+  block:
+    - name: Compare installed version with target
+      ansible.builtin.command:
+        argv:
+          - dpkg
+          - --compare-versions
+          - "{{ installed_version_raw }}"
+          - lt
+          - "{{ dpkg_target_version }}"
+      register: dpkg_version_compare
+      failed_when: false
+      changed_when: false
+      when: dpkg_installed_query.rc == 0 and dpkg_target_version | length > 0
+
+    - name: Set update flag
+      ansible.builtin.set_fact:
+        needs_update: "{{ (dpkg_version_compare.rc | default(1)) == 0 }}"
+      when: dpkg_installed_query.rc == 0 and dpkg_target_version | length > 0

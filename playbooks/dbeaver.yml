@@ -3,80 +3,41 @@
   hosts: local
 
   tasks:
-    - name: Resolve DBeaver version
+    - name: Resolve target version
+      include_tasks: utils/resolveReleaseVersion.yml
+      vars:
+        requested_version: "{{ dbeaver_version }}"
+        release_repo_owner: "dbeaver"
+        release_repo_name: "dbeaver"
+
+    - name: Determine update requirement
+      include_tasks: utils/dpkgNeedsUpdate.yml
+      vars:
+        dpkg_package_name: "dbeaver-ce"
+        dpkg_target_version: "{{ target_version }}"
+
+    - name: Install or update DBeaver
       block:
-        - name: Fetch latest DBeaver release tag from GitHub
-          ansible.builtin.uri:
-            url: https://api.github.com/repos/dbeaver/dbeaver/releases/latest
-            return_content: true
-          register: dbeaver_latest_release
+        - name: Download package
+          ansible.builtin.get_url:
+            url: "{{ dbeaver_github_release_url }}/{{ effective_release_version }}/dbeaver-ce-{{ effective_release_version }}-linux-x86_64.deb"
+            dest: "/tmp/dbeaver-ce-{{ effective_release_version }}-linux-x86_64.deb"
+            mode: "0644"
+            force: true
           changed_when: false
 
-        - name: Set effective DBeaver version
-          ansible.builtin.set_fact:
-            dbeaver_effective_version: "{{ dbeaver_latest_release.json.tag_name }}"
-      when: dbeaver_version == "latest"
-
-    - name: Set effective DBeaver version (explicit)
-      ansible.builtin.set_fact:
-        dbeaver_effective_version: "{{ dbeaver_version }}"
-      when: dbeaver_version != "latest"
-
-    - name: Check if DBeaver is already installed
-      ansible.builtin.command: dpkg -l dbeaver-ce
-      register: dbeaver_installed
-      failed_when: false
-      changed_when: false
-
-    - name: Get installed DBeaver version
-      ansible.builtin.shell: dpkg -l dbeaver-ce | grep '^ii' | awk '{print $3}'
-      register: installed_version
-      failed_when: false
-      changed_when: false
-      when: dbeaver_installed.rc == 0
-
-    - name: Determine if update is needed
-      block:
-        - name: Compare installed version with latest tag
-          ansible.builtin.command: "dpkg --compare-versions {{ installed_version.stdout | default('0') }} lt {{ dbeaver_effective_version }}"
-          register: version_compare
-          failed_when: false
-          changed_when: false
-          when: dbeaver_installed.rc == 0
-
-        - name: Set update flag
-          ansible.builtin.set_fact:
-            needs_update: "{{ dbeaver_installed.rc != 0 or ((version_compare.rc | default(1)) == 0) }}"
-      when: installed_version is defined
-
-    - name: Download DBeaver .deb package
-      ansible.builtin.get_url:
-        url: "{{ dbeaver_github_release_url }}/{{ dbeaver_effective_version }}/dbeaver-ce-{{ dbeaver_effective_version }}-linux-x86_64.deb"
-        dest: "/tmp/dbeaver-ce-{{ dbeaver_effective_version }}-linux-x86_64.deb"
-        mode: "0644"
-        force: true
-      changed_when: false
+        - name: Install from downloaded file
+          include_tasks: utils/installFromFile.yml
+          vars:
+            download_target_file: "/tmp/dbeaver-ce-{{ effective_release_version }}-linux-x86_64.deb"
       when: needs_update
 
-    - name: Install DBeaver from .deb package
-      ansible.builtin.apt:
-        deb: "/tmp/dbeaver-ce-{{ dbeaver_effective_version }}-linux-x86_64.deb"
-        state: present
-      when: needs_update
-
-    - name: Clean up downloaded .deb file
-      ansible.builtin.file:
-        path: "/tmp/dbeaver-ce-{{ dbeaver_effective_version }}-linux-x86_64.deb"
-        state: absent
-      changed_when: false
-      when: ansible_facts["os_family"] == "Debian"
-
-    - name: Print installation status
+    - name: Report installation status
       ansible.builtin.debug:
-        msg: "DBeaver {{ dbeaver_effective_version }} has been {{ 'updated' if (dbeaver_installed.rc == 0 and needs_update) else 'installed' }}"
+        msg: "DBeaver {{ target_version }} has been installed or updated"
       when: needs_update
 
-    - name: Print skip status
+    - name: Report up-to-date status
       ansible.builtin.debug:
-        msg: "DBeaver {{ installed_version.stdout | default('unknown') }} is already up to date"
+        msg: "DBeaver {{ installed_version }} is already up to date"
       when: not needs_update
