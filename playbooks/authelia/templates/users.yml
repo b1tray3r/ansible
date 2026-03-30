@@ -1,0 +1,2 @@
+users:
+  {{ AUTHELIA_USERS | to_yaml | indent(2) }}

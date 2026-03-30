@@ -1,0 +1,95 @@
+theme: dark
+
+log:
+  level: {{ AUTHELIA_LOG_LEVEL }}
+
+server:
+  address: tcp://0.0.0.0:9091/
+
+authentication_backend:
+  file:
+    path: '/config/users.yml'
+    watch: false
+    search:
+      email: true
+      case_insensitive: true
+    extra_attributes:
+    password:
+      algorithm: 'argon2'
+      argon2:
+        variant: 'argon2id'
+        iterations: 3
+        memory: 65536
+        parallelism: 4
+        key_length: 32
+        salt_length: 16
+
+access_control:
+  default_policy: {{ AUTHELIA_DEFAULT_POLICY }}
+
+session:
+  name: {{ AUTHELIA_SESSION_NAME }}
+  cookies:
+    - domain: "{{ AUTHELIA_DOMAIN }}"
+      authelia_url: "https://{{ AUTHELIA_DOMAIN }}/"
+      name: '{{ AUTHELIA_SESSION_NAME }}'
+      same_site: "{{ AUTHELIA_COOCKIE_SAME_SITE }}"
+
+storage:
+  encryption_key: '{% raw %}{{ secret "/secrets/authelia_storage_encryption_key" }}{% endraw %}'
+  mysql:
+    address: {{ AUTHELIA_MARIADB_ADDRESS }}
+    database: {{ AUTHELIA_MARIADB_DATABASE }}
+    username: {{ AUTHELIA_MARIADB_USER }}
+    password: '{% raw %}{{ secret "/secrets/authelia_storage_mariadb_password" }}{% endraw %}'
+    timeout: 5s
+
+notifier:
+  smtp:
+    address: 'smtp://{{ AUTHELIA_MAIL_HOST }}:{{ AUTHELIA_MAIL_PORT }}'
+    username: '{{ AUTHELIA_MAIL_USERNAME }}'
+    password: '{{ AUTHELIA_MAIL_PASSWORD }}'
+    timeout: '5s'
+    sender: "Authelia <alexander.borgardt@gmail.com>"
+    identifier: '{{ AUTHELIA_DOMAIN }}'
+    subject: "[Authelia] {title}"
+    startup_check_address: 'alexander.borgardt@gmail.com'
+    disable_require_tls: false
+    disable_starttls: false
+    disable_html_emails: false
+
+identity_validation:
+  reset_password:
+    jwt_secret: '{% raw %}{{ secret "/secrets/authelia_identity_validation_jwt" }}{% endraw %}'
+
+identity_providers:
+  oidc:
+    jwks:
+      - key_id: main
+        algorithm: RS256
+        use: sig
+        key: |
+{% raw %}{{ secret "/secrets/authelia_oidc_private_key" }}{% endraw %}
+
+    clients:
+      - client_id: 'forgejo'
+        client_name: 'Forgejo'
+        client_secret: '{{ FORGEJO_SSO_TOKEN }}'
+        public: false
+        authorization_policy: 'two_factor'
+        require_pkce: true
+        pkce_challenge_method: 'S256'
+        redirect_uris:
+          - 'https://git.borgardt.me/user/oauth2/authelia/callback'
+        scopes:
+          - 'openid'
+          - 'email'
+          - 'profile'
+          - 'groups'
+        response_types:
+          - 'code'
+        grant_types:
+          - 'authorization_code'
+        access_token_signed_response_alg: 'none'
+        userinfo_signed_response_alg: 'none'
+        token_endpoint_auth_method: 'client_secret_basic'

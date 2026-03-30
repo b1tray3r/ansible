@@ -1,0 +1,37 @@
+---
+- hosts: sso_group
+  tasks:
+    - name: Stop and remove Authelia app container
+      community.docker.docker_container:
+        name: authelia-app
+        state: absent
+
+    - name: Stop and remove Authelia mariadb container
+      community.docker.docker_container:
+        name: authelia-mariadb
+        state: absent
+
+    - name: Stop and remove Authelia redis container
+      community.docker.docker_container:
+        name: authelia-redis
+        state: absent
+
+    - name: Remove Authelia mariadb volume
+      community.docker.docker_volume:
+        name: authelia-mariadb
+        state: absent
+
+    - name: Remove Authelia redis volume
+      community.docker.docker_volume:
+        name: authelia-redis
+        state: absent
+
+    - name: Remove Authelia network
+      community.docker.docker_network:
+        name: "{{ AUTHELIA_NETWORK }}"
+        state: absent
+
+    - name: Remove Authelia working directory
+      ansible.builtin.file:
+        path: "{{ AUTHELIA_WORKING_DIR }}"
+        state: absent

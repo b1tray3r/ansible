@@ -1,9 +1,8 @@
 ---
 
-- hosts: swarm_worker_group
+- hosts: docker_runner_group
   tasks:
     - name: Create required folders
-      when: "'forgejo-runner' in SWARM_NODE_LABELS"
       ansible.builtin.file:
         path: "{{ FORGEJO_RUNNER_PATH }}/data/.cache"
         mode: "2775"
@@ -13,7 +12,6 @@
         group: "1000"
 
     - name: Create the .runner file
-      when: "'forgejo-runner' in SWARM_NODE_LABELS"
       ansible.builtin.file:
         path: "{{ FORGEJO_RUNNER_PATH }}/data/.runner"
         state: touch
@@ -21,8 +19,39 @@
         owner: "1000"
         group: "1000"
 
+    - name: Copy the runner config file
+      ansible.builtin.template:
+        src: "templates/config.yml"
+        dest: "{{ FORGEJO_RUNNER_PATH }}/config.yml"
+        owner: root
+        group: root
+        mode: 0644
+      register: runner_config_changed
+
+    - name: Remove old runner registration if config changed
+      ansible.builtin.file:
+        path: "{{ FORGEJO_RUNNER_PATH }}/data/.runner"
+        state: absent
+      when: runner_config_changed.changed
+
+    - name: Display runner registration instructions
+      ansible.builtin.debug:
+        msg: |
+          IMPORTANT: The runner configuration has changed and requires re-registration.
+          
+          1. SSH to the runner host
+          2. Stop the runner: cd {{ FORGEJO_RUNNER_PATH }} && docker compose down
+          3. Register with new labels: 
+             docker compose run --rm runner forgejo-runner register \
+               --no-interactive \
+               --token {{ FORGEJO_RUNNER_TOKEN }} \
+               --name docker-runner \
+               --instance {{ FORGEJO_ROOT_URL }} \
+               --labels docker:docker://catthehacker/ubuntu:act-latest,ubuntu-latest:docker://catthehacker/ubuntu:act-latest
+          4. Start the runner: docker compose up -d
+      when: runner_config_changed.changed
+
     - name: Copy the compose file
-      when: "'forgejo-runner' in SWARM_NODE_LABELS"
       ansible.builtin.template:
         src: "templates/compose.yml"
         dest: "{{ FORGEJO_RUNNER_PATH }}/compose.yml"

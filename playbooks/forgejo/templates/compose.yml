@@ -52,7 +52,6 @@ services:
       - "traefik.http.routers.forgejo.tls.certresolver=letsencrypt"
       - "traefik.http.services.forgejo.loadbalancer.server.port=3000"
 
-
   db:
     image: mysql:8
     container_name: forgejo_db

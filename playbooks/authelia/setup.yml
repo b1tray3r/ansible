@@ -1,0 +1,135 @@
+---
+- hosts: sso_group
+
+  handlers:
+    - name: Restart authelia container
+      community.docker.docker_container:
+        name: authelia-app
+        restart: yes
+
+  tasks:
+    - name: Create working directory for authelia
+      ansible.builtin.file:
+        path: "{{ AUTHELIA_WORKING_DIR }}"
+        state: directory
+
+    - name: Create directories for configuration and secrets
+      ansible.builtin.file:
+        path: "{{ AUTHELIA_WORKING_DIR }}/{{ item }}"
+        state: directory
+      loop:
+        - "config"
+        - "secrets"
+
+    - name: Copy secrets to the authelia secrets directory
+      ansible.builtin.copy:
+        content: "{{ item.content }}"
+        dest: "{{ item.destination }}"
+        mode: "0600"
+      loop:
+        - content: "{{ AUTHELIA_STORAGE_ENCRYPTION_KEY }}"
+          destination: "{{ AUTHELIA_WORKING_DIR }}/secrets/authelia_storage_encryption_key"
+        - content: "{{ AUTHELIA_MYSQL_PASSWORD }}"
+          destination: "{{ AUTHELIA_WORKING_DIR }}/secrets/authelia_storage_mariadb_password"
+        - content: "{{ AUTHELIA_IDENTITY_VALIDATION_JWT }}"
+          destination: "{{ AUTHELIA_WORKING_DIR }}/secrets/authelia_identity_validation_jwt"
+        - content: "{{ FORGEJO_JWT_SECRET }}"
+          destination: "{{ AUTHELIA_WORKING_DIR }}/secrets/authelia_oidc_jwt_secret"
+        - content: "{{ AUTHELIA_OIDC_PUBLIC_KEY }}"
+          destination: "{{ AUTHELIA_WORKING_DIR }}/secrets/authelia_oidc_public_key"
+        - content: "{{ AUTHELIA_OIDC_PRIVATE_KEY | indent(width=10, first=true) }}"
+          destination: "{{ AUTHELIA_WORKING_DIR }}/secrets/authelia_oidc_private_key"
+
+      notify: Restart authelia container
+
+    - name: Copy file configuration.yml to its destination
+      ansible.builtin.template:
+        src: templates/authelia.configuration.yml
+        dest: "{{ AUTHELIA_WORKING_DIR }}/config/configuration.yml"
+      notify: Restart authelia container
+
+    - name: Copy file users.yml to its destination
+      ansible.builtin.template:
+        src: templates/users.yml
+        dest: "{{ AUTHELIA_WORKING_DIR }}/config/users.yml"
+      notify: Restart authelia container
+
+    - name: Create the Authelia network
+      community.docker.docker_network:
+        name: "{{ AUTHELIA_NETWORK }}"
+
+    - name: Create the mariadb volumes
+      community.docker.docker_volume:
+        name: "authelia-mariadb"
+        driver: local
+        state: present
+
+    - name: Start the authelia mariadb container
+      community.docker.docker_container:
+        name: authelia-mariadb
+        image: "mariadb:{{ AUTHELIA_MARIADB_IMAGE_TAG }}"
+        state: started
+        restart_policy: "always"
+        container_default_behavior: no_defaults
+        network_mode: bridge
+        networks_cli_compatible: yes
+        networks:
+          - name: "{{ AUTHELIA_NETWORK }}"
+        env:
+          MYSQL_ROOT_PASSWORD: "{{ AUTHELIA_MYSQL_ROOT_PASSWORD }}"
+          MYSQL_ROOT_USER: "{{ AUTHELIA_MYSQL_ROOT_USER }}"
+          MYSQL_DATABASE: "{{ AUTHELIA_MARIADB_DATABASE }}"
+          MYSQL_USER: "{{ AUTHELIA_MARIADB_USER }}"
+          MYSQL_PASSWORD: "{{ AUTHELIA_MYSQL_PASSWORD }}"
+        volumes:
+          - "authelia-mariadb:/var/lib/mysql"
+          - "/etc/localtime:/etc/localtime:ro"
+
+    - name: Create the redis volume
+      community.docker.docker_volume:
+        name: "authelia-redis"
+        driver: local
+        state: present
+
+    - name: Start the authelia redis container
+      community.docker.docker_container:
+        name: authelia-redis
+        image: "redis:{{ AUTHELIA_REDIS_IMAGE_TAG }}"
+        restart: yes
+        command: redis-server --requirepass "{{ AUTHELIA_REDIS_PASSWORD }}"
+        state: started
+        restart_policy: "always"
+        container_default_behavior: no_defaults
+        network_mode: bridge
+        networks_cli_compatible: yes
+        networks:
+          - name: "{{ AUTHELIA_NETWORK }}"
+        volumes:
+          - "authelia-redis:/usr/local/etc/redis"
+          - "/etc/localtime:/etc/localtime:ro"
+
+    - name: Start the authelia container
+      community.docker.docker_container:
+        name: authelia-app
+        image: "authelia/authelia:{{ AUTHELIA_IMAGE_TAG }}"
+        state: started
+        recreate: yes
+        restart_policy: "always"
+        container_default_behavior: no_defaults
+        network_mode: bridge
+        networks_cli_compatible: yes
+        networks:
+          - name: "{{ TRAEFIK_NETWORK }}"
+          - name: "{{ AUTHELIA_NETWORK }}"
+        volumes:
+          - "{{ AUTHELIA_WORKING_DIR }}/config:/config"
+          - "{{ AUTHELIA_WORKING_DIR }}/secrets:/secrets:ro"
+          - "/etc/localtime:/etc/localtime:ro"
+        env:
+          X_AUTHELIA_CONFIG_FILTERS: "template"
+        labels:
+          "traefik.enable": "true"
+          "traefik.http.routers.authelia-app.entrypoints": "websecure"
+          "traefik.http.routers.authelia-app.rule": "{{ AUTHELIA_TRAEFIK_HOST }}"
+          "traefik.http.routers.authelia-app.tls.certresolver": "letsencrypt"
+          "traefik.http.services.authelia-app.loadbalancer.server.port": "9091"

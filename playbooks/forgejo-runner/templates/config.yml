@@ -1,0 +1,44 @@
+# Forgejo Runner Configuration
+# This configuration enables Docker-in-Docker for building Docker images in workflows
+
+log:
+  level: info
+
+runner:
+  # Maximum number of concurrent jobs
+  # Set to 1 to prevent jobs from interfering with each other in DinD
+  capacity: 1
+  
+  # Environment variables passed to job containers
+  envs:
+    # Tell job containers where to find the Docker daemon
+    DOCKER_HOST: tcp://docker-in-docker:2375
+  
+  # Timeout for jobs (in seconds)
+  timeout: 3h
+  
+  # Labels define which jobs this runner accepts and what image to use
+  # Format: "label:docker://imagename:tag"
+  labels:
+    - "docker:docker://catthehacker/ubuntu:act-latest"
+    - "ubuntu-latest:docker://catthehacker/ubuntu:act-latest"
+
+container:
+  # Network for job containers (inherited from docker-compose network)
+  network: ""
+  
+  # Tell the runner where to create job and service containers
+  docker_host: "tcp://docker-in-docker:2375"
+  
+  # Add host entry for DNS resolution inside job containers
+  options: "--add-host=docker-in-docker:host-gateway"
+  
+  # Enable privileged mode if needed (generally not required for DinD)
+  privileged: false
+  
+  # Valid platforms for this runner
+  valid_volumes: []
+  
+cache:
+  enabled: true
+  dir: "/data/.cache"
