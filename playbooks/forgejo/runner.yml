@@ -21,7 +21,7 @@
 
     - name: Copy the runner config file
       ansible.builtin.template:
-        src: "templates/config.yml"
+        src: "templates/runner/config.yml"
         dest: "{{ FORGEJO_RUNNER_PATH }}/config.yml"
         owner: root
         group: root
@@ -53,7 +53,7 @@
 
     - name: Copy the compose file
       ansible.builtin.template:
-        src: "templates/compose.yml"
+        src: "templates/runner/compose.yml"
         dest: "{{ FORGEJO_RUNNER_PATH }}/compose.yml"
         owner: root
         group: root
