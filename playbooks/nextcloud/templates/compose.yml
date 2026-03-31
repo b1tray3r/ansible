@@ -92,6 +92,7 @@ services:
       - NEXTCLOUD_ADMIN_USER=${NEXTCLOUD_ADMIN_USER}
       - NEXTCLOUD_TRUSTED_DOMAINS={{ NEXTCLOUD_DOMAIN }}
       - TRUSTED_PROXIES=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+      - OVERWRITEFORHEADERS=X-Forwarded-For
       - OVERWRITEPROTOCOL=https
       - OVERWRITECLIURL=https://{{ NEXTCLOUD_DOMAIN }}
       - NC_maintenance_window_start=1
@@ -126,3 +127,18 @@ services:
       - "traefik.http.middlewares.nc-header.headers.stsPreload=true"
       - "traefik.http.middlewares.nc-header.headers.forceSTSHeader=true"
       - "traefik.http.routers.nextcloud.middlewares=nc-rep,nc-header"
+
+  cron:
+    image: alpine:latest
+    container_name: nextcloud_cron
+    restart: unless-stopped
+    command: >
+      sh -c "
+        apk add --no-cache curl &&
+        while true; do
+          curl -s -o /dev/null 'http://app/cron.php';
+          sleep 300;
+        done
+      "
+    networks:
+      - internal

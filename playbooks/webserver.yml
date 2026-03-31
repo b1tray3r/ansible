@@ -1,0 +1,7 @@
+---
+
+- name: Setup docker
+  import_playbook: docker.yml
+
+- name: Setup traefik
+  import_playbook: traefik/setup.yml

@@ -74,3 +74,35 @@ PATH = /data/git/lfs
 [oauth2]
 ENABLED = true
 
+[cron]
+ENABLED = true
+RUN_AT_START = false
+
+[cron.update_mirror]
+ENABLED = true
+RUN_AT_START = false
+SCHEDULE = @every 5m
+
+[cron.sync_external_user]
+ENABLED = true
+RUN_AT_START = false
+SCHEDULE = @every 10m
+
+[cron.archive_cleanup]
+ENABLED = true
+RUN_AT_START = false
+SCHEDULE = @daily
+OLDER_THAN = 168h
+
+[cron.delete_old_actions]
+ENABLED = true
+RUN_AT_START = false
+SCHEDULE = @daily
+OLDER_THAN = 168h
+
+[cron.git_gc_repos]
+ENABLED = true
+RUN_AT_START = false
+SCHEDULE = @daily
+TIMEOUT = 10m
+
