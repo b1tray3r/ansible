@@ -3,9 +3,6 @@
 - hosts: forgejo_group
   remote_user: root
   tasks:
-    # ========================================
-    # User & System Setup
-    # ========================================
     - name: Setup git user for SSH passthrough
       block:
         - name: Create git user
@@ -27,9 +24,6 @@
             group: git
             mode: "0700"
 
-    # ========================================
-    # Directory Structure
-    # ========================================
     - name: Create directory structure
       block:
         - name: Ensure forgejo root folder exists
@@ -60,9 +54,6 @@
             state: directory
             mode: "0750"
 
-    # ========================================
-    # Stack Deployment
-    # ========================================
     - name: Deploy Forgejo stack
       block:
         - name: Ensure proxy network exists
@@ -113,9 +104,6 @@
             project_src: "{{ FORGEJO_DATA_PATH }}"
             state: present
 
-    # ========================================
-    # Database Initialization
-    # ========================================
     - name: Initialize Forgejo database
       block:
         - name: Set forgejo container name
@@ -189,126 +177,6 @@
         - name: Log initialization failure
           ansible.builtin.debug:
             msg: "Forgejo initialization failed - container may not be ready yet"
-
-    # ========================================
-    # SSH Configuration
-    # ========================================
-    - name: Configure SSH passthrough
-      block:
-        - name: Create gitea wrapper script
-          ansible.builtin.copy:
-            content: |
-              #!/bin/sh
-              # Gitea SSH passthrough wrapper
-              # Find the running Forgejo container
-              CONTAINER=$(docker ps --filter "name=forgejo_forgejo" --format "{% raw %}{{.Names}}{% endraw %}" | head -1)
-
-              if [ -z "$CONTAINER" ]; then
-                echo "Error: Forgejo container not running" >&2
-                exit 1
-              fi
-
-              # Pass through SSH_ORIGINAL_COMMAND to the container
-              exec docker exec -i \
-                -u git \
-                -e SSH_ORIGINAL_COMMAND="$SSH_ORIGINAL_COMMAND" \
-                "$CONTAINER" \
-                /usr/local/bin/gitea "$@"
-            dest: /usr/local/bin/gitea
-            owner: root
-            group: root
-            mode: "0755"
-
-        - name: Create symlink for authorized_keys compatibility
-          ansible.builtin.file:
-            src: /usr/local/bin/gitea
-            dest: /usr/bin/gitea
-            state: link
-            force: yes
-
-        - name: Create authorized_keys sync script
-          ansible.builtin.copy:
-            content: |
-              #!/bin/bash
-              # Sync authorized_keys from Forgejo data to both required locations
-              # Forgejo uses SSH_AUTHORIZED_KEYS_FILE which may differ from git user home
-              CONTAINER="{{ forgejo_container }}"
-              SOURCE="{{ FORGEJO_DATA_PATH }}/forgejo/.ssh/authorized_keys"
-              
-              # Sync to git user home (/data/git/.ssh/)
-              DEST_GIT="{{ FORGEJO_DATA_PATH }}/forgejo/git/.ssh/authorized_keys"
-              
-              # Sync to SSH_AUTHORIZED_KEYS_FILE location (/data/.ssh/)
-              DEST_SSH="{{ FORGEJO_DATA_PATH }}/forgejo/.ssh/authorized_keys"
-              
-              if [ -f "$SOURCE" ]; then
-                # Ensure git user home directory exists
-                mkdir -p "$(dirname "$DEST_GIT")"
-                
-                # Sync to both locations
-                cp "$SOURCE" "$DEST_GIT"
-                cp "$SOURCE" "$DEST_SSH"
-                
-                chown git:git "$DEST_GIT" "$DEST_SSH"
-                chmod 600 "$DEST_GIT" "$DEST_SSH"
-                
-                # Restart Forgejo container to pick up changes
-                docker restart "$CONTAINER" >/dev/null 2>&1
-              fi
-            dest: /usr/local/bin/sync-forgejo-keys
-            owner: root
-            group: root
-            mode: "0755"
-
-        - name: Create cron job for SSH key synchronization
-          ansible.builtin.cron:
-            name: "Sync Forgejo SSH keys"
-            minute: "*/5"
-            job: "/usr/local/bin/sync-forgejo-keys"
-            user: root
-
-        - name: Regenerate SSH keys from database
-          when: forgejo_container is defined
-          block:
-            - name: Wait for Forgejo to be healthy
-              ansible.builtin.pause:
-                seconds: 20
-
-            - name: Regenerate authorized_keys from database
-              ansible.builtin.shell: |
-                docker exec -u git {{ forgejo_container }} /usr/local/bin/gitea admin regenerate keys
-              changed_when: true
-              ignore_errors: yes
-
-            - name: Run initial key sync
-              ansible.builtin.command: /usr/local/bin/sync-forgejo-keys
-              changed_when: false
-
-            - name: Fix SSH key ID mismatch in authorized_keys
-              when: forgejo_container is defined
-              block:
-                - name: Get existing key IDs in authorized_keys
-                  ansible.builtin.shell: |
-                    docker exec {{ forgejo_container }} cat /data/.ssh/authorized_keys 2>/dev/null | grep -oP 'serv key-\K[0-9]+' || echo ""
-                  register: auth_keys_ids
-                  changed_when: false
-
-                - name: Get key IDs from database
-                  ansible.builtin.shell: |
-                    docker exec forgejo_db mysql -u root -pforgejo forgejo -e 'SELECT id FROM public_key;' 2>/dev/null | tail -n +2 | tr '\n' ' '
-                  register: db_key_ids
-                  changed_when: false
-
-                - name: Extract valid key ID from database
-                  ansible.builtin.set_fact:
-                    valid_key_id: "{{ db_key_ids.stdout.split()[-1] }}"
-
-                - name: Fix authorized_keys if key ID mismatch
-                  when: auth_keys_ids.stdout != valid_key_id
-                  ansible.builtin.shell: |
-                    docker exec {{ forgejo_container }} sed -i 's/key-[0-9]\+/key-{{ valid_key_id }}/' /data/.ssh/authorized_keys
-                  changed_when: true
-                  notify: Restart forgejo stack
 
   handlers:
     - name: Restart forgejo stack
