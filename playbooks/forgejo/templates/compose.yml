@@ -6,24 +6,6 @@ networks:
     driver: bridge
 
 services:
-#  openvpn3:
-#    image: aborgardt/openvpn3-client:latest
-#    container_name: forgejo_openvpn3
-#    restart: unless-stopped
-#    env_file:
-#      - {{ FORGEJO_DATA_PATH }}/openvpn3.env
-#    volumes:
-#      - {{ FORGEJO_DATA_PATH }}/config.ovpn:/app/config.ovpn
-#    ports:
-#      - "3000:3000"
-#    cap_add:
-#      - NET_ADMIN
-#    devices:
-#      - /dev/net/tun:/dev/net/tun
-#    networks:
-#      - internal
-#      - proxy
-
   forgejo:
     image: codeberg.org/forgejo/forgejo:14
     container_name: forgejo_forgejo
