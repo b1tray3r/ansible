@@ -40,6 +40,46 @@
             owner: "1000"
             group: "1000"
 
+        - name: Ensure forgejo git storage folder exists
+          ansible.builtin.file:
+            path: "{{ FORGEJO_DATA_PATH }}/forgejo/git"
+            state: directory
+            owner: "1000"
+            group: "1000"
+            mode: "0750"
+
+        - name: Ensure forgejo repository root exists
+          ansible.builtin.file:
+            path: "{{ FORGEJO_DATA_PATH }}/forgejo/git/repositories"
+            state: directory
+            owner: "1000"
+            group: "1000"
+            mode: "0750"
+
+        - name: Ensure forgejo LFS root exists
+          ansible.builtin.file:
+            path: "{{ FORGEJO_DATA_PATH }}/forgejo/git/lfs"
+            state: directory
+            owner: "1000"
+            group: "1000"
+            mode: "0750"
+
+        - name: Ensure forgejo internal ssh folder exists
+          ansible.builtin.file:
+            path: "{{ FORGEJO_DATA_PATH }}/forgejo/git/.ssh"
+            state: directory
+            owner: "1000"
+            group: "1000"
+            mode: "0700"
+
+        - name: Ensure forgejo authorized_keys file exists
+          ansible.builtin.file:
+            path: "{{ FORGEJO_DATA_PATH }}/forgejo/git/.ssh/authorized_keys"
+            state: touch
+            owner: "1000"
+            group: "1000"
+            mode: "0600"
+
         - name: Ensure forgejo .ssh folder exists
           ansible.builtin.file:
             path: "{{ FORGEJO_DATA_PATH }}/forgejo/.ssh"
@@ -66,6 +106,14 @@
         - name: Ensure gitea conf directory exists
           ansible.builtin.file:
             path: "{{ FORGEJO_DATA_PATH }}/forgejo/gitea/conf"
+            state: directory
+            owner: "1000"
+            group: "1000"
+            mode: "0755"
+
+        - name: Ensure gitea log directory exists
+          ansible.builtin.file:
+            path: "{{ FORGEJO_DATA_PATH }}/forgejo/gitea/log"
             state: directory
             owner: "1000"
             group: "1000"

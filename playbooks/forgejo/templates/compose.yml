@@ -14,7 +14,7 @@ services:
       - USER_GID=1000
     restart: unless-stopped
     volumes:
-      - {{ FORGEJO_DATA_PATH }}/forgejo:/data
+      - "{{ FORGEJO_DATA_PATH }}/forgejo:/data"
       - /etc/localtime:/etc/localtime:ro
     networks:
       - internal
@@ -35,15 +35,16 @@ services:
       - "traefik.http.services.forgejo.loadbalancer.server.port=3000"
 
   db:
-    image: mysql:8
+    image: mariadb:lts
     container_name: forgejo_db
     restart: unless-stopped
     environment:
-      - MYSQL_ROOT_PASSWORD=forgejo
-      - MYSQL_USER=forgejo
-      - MYSQL_PASSWORD=forgejo
-      - MYSQL_DATABASE=forgejo
+      - MYSQL_ROOT_USER={{ FORGEJO_MYSQL_ROOT_USER }}
+      - MYSQL_ROOT_PASSWORD={{ FORGEJO_MYSQL_ROOT_PASSWORD }}
+      - MYSQL_USER={{ FORGEJO_MYSQL_USER }}
+      - MYSQL_PASSWORD={{ FORGEJO_MYSQL_PASSWORD }}
+      - MYSQL_DATABASE={{ FORGEJO_MYSQL_DATABASE }}
     networks:
       - internal
     volumes:
-      - {{ FORGEJO_DATA_PATH }}/mysql:/var/lib/mysql
+      - "{{ FORGEJO_DATA_PATH }}/mysql:/var/lib/mysql"

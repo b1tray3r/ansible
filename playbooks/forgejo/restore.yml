@@ -1,0 +1,133 @@
+---
+
+- hosts: forgejo_group
+  remote_user: root
+  gather_facts: false
+  vars:
+    FORGEJO_RESTORE_TMP: /root/forgejo-restore
+  tasks:
+    - name: Select backup directory to restore
+      ansible.builtin.shell: >-
+        if [ -n "{{ lookup('ansible.builtin.vars', 'FORGEJO_RESTORE_BACKUP_PATH', default='') }}" ]; then
+          printf '%s' "{{ lookup('ansible.builtin.vars', 'FORGEJO_RESTORE_BACKUP_PATH', default='') }}";
+        else
+          ls -1dt {{ FORGEJO_BACKUP_PATH }}/* | head -n 1;
+        fi
+      register: forgejo_restore_backup_path_cmd
+      changed_when: false
+      failed_when: forgejo_restore_backup_path_cmd.stdout | trim == ''
+
+    - name: Store selected backup directory
+      ansible.builtin.set_fact:
+        forgejo_restore_backup_path: "{{ forgejo_restore_backup_path_cmd.stdout | trim }}"
+
+    - name: Stop forgejo stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ FORGEJO_DATA_PATH }}"
+        project_name: forgejo
+        state: absent
+
+    - name: Remove previous restore workspace
+      ansible.builtin.file:
+        path: "{{ FORGEJO_RESTORE_TMP }}"
+        state: absent
+
+    - name: Create restore workspace
+      ansible.builtin.file:
+        path: "{{ FORGEJO_RESTORE_TMP }}"
+        state: directory
+        mode: "0750"
+
+    - name: Extract Forgejo dump archive
+      ansible.builtin.unarchive:
+        src: "{{ forgejo_restore_backup_path }}/forgejo-dump.zip"
+        dest: "{{ FORGEJO_RESTORE_TMP }}"
+        remote_src: true
+
+    - name: Remove current Forgejo storage directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ FORGEJO_DATA_PATH }}/forgejo/git"
+        - "{{ FORGEJO_DATA_PATH }}/forgejo/gitea"
+
+    - name: Recreate Forgejo storage directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "{{ FORGEJO_DATA_PATH }}/forgejo/git/repositories", mode: "0750" }
+        - { path: "{{ FORGEJO_DATA_PATH }}/forgejo/git/lfs", mode: "0750" }
+        - { path: "{{ FORGEJO_DATA_PATH }}/forgejo/git/.ssh", mode: "0700" }
+        - { path: "{{ FORGEJO_DATA_PATH }}/forgejo/gitea", mode: "0750" }
+
+    - name: Restore repository and app data
+      ansible.builtin.shell: >-
+        cp -a {{ FORGEJO_RESTORE_TMP }}/repos/. {{ FORGEJO_DATA_PATH }}/forgejo/git/repositories/ &&
+        cp -a {{ FORGEJO_RESTORE_TMP }}/data/. {{ FORGEJO_DATA_PATH }}/forgejo/gitea/
+
+    - name: Restore app.ini configuration
+      ansible.builtin.copy:
+        dest: "{{ FORGEJO_DATA_PATH }}/forgejo/gitea/conf/app.ini"
+        mode: "0644"
+        owner: "1000"
+        group: "1000"
+        remote_src: true
+        src: "{{ FORGEJO_RESTORE_TMP }}/app.ini"
+
+    - name: Ensure runtime files exist with correct ownership
+      ansible.builtin.shell: >-
+        mkdir -p {{ FORGEJO_DATA_PATH }}/forgejo/gitea/log {{ FORGEJO_DATA_PATH }}/forgejo/git/.ssh &&
+        touch {{ FORGEJO_DATA_PATH }}/forgejo/git/.ssh/authorized_keys &&
+        chown -R 1000:1000 {{ FORGEJO_DATA_PATH }}/forgejo &&
+        chmod 0700 {{ FORGEJO_DATA_PATH }}/forgejo/git/.ssh &&
+        chmod 0600 {{ FORGEJO_DATA_PATH }}/forgejo/git/.ssh/authorized_keys
+
+    - name: Start database container
+      community.docker.docker_compose_v2:
+        project_src: "{{ FORGEJO_DATA_PATH }}"
+        project_name: forgejo
+        services:
+          - db
+        state: present
+
+    - name: Wait for database container to be ready
+      ansible.builtin.pause:
+        seconds: 15
+
+    - name: Recreate forgejo database
+      ansible.builtin.shell: >-
+        docker exec forgejo_db sh -lc
+        "mariadb -u{{ FORGEJO_MYSQL_ROOT_USER }} -p{{ FORGEJO_MYSQL_ROOT_PASSWORD }} -e \"DROP DATABASE IF EXISTS forgejo; CREATE DATABASE forgejo CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\""
+
+    - name: Import forgejo SQL dump
+      ansible.builtin.shell: >-
+        { printf 'SET FOREIGN_KEY_CHECKS=0;\nSET UNIQUE_CHECKS=0;\n';
+        cat {{ FORGEJO_RESTORE_TMP }}/forgejo-db.sql;
+        printf '\nSET UNIQUE_CHECKS=1;\nSET FOREIGN_KEY_CHECKS=1;\n'; } |
+        docker exec -i forgejo_db sh -lc "mariadb --force -u{{ FORGEJO_MYSQL_ROOT_USER }} -p{{ FORGEJO_MYSQL_ROOT_PASSWORD }} forgejo"
+
+    - name: Start forgejo container
+      community.docker.docker_compose_v2:
+        project_src: "{{ FORGEJO_DATA_PATH }}"
+        project_name: forgejo
+        services:
+          - forgejo
+        state: present
+
+    - name: Wait for forgejo cli to become ready
+      ansible.builtin.shell: >-
+        docker exec --user git forgejo_forgejo bash --noprofile --norc -lc
+        "forgejo admin user list"
+      register: forgejo_ready
+      until: forgejo_ready.rc == 0
+      retries: 30
+      delay: 5
+      changed_when: false
+
+    - name: Remove restore workspace
+      ansible.builtin.file:
+        path: "{{ FORGEJO_RESTORE_TMP }}"
+        state: absent

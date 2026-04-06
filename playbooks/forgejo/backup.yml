@@ -2,4 +2,107 @@
 
 - hosts: forgejo_group
   remote_user: root
+  gather_facts: true
+  vars:
+    forgejo_backup_run_path: "{{ FORGEJO_BACKUP_PATH }}/{{ ansible_facts['date_time']['iso8601'] }}"
   tasks:
+    - name: Create backup directory
+      ansible.builtin.file:
+        mode: "0750"
+        path: "{{ forgejo_backup_run_path }}"
+        state: directory
+
+    - name: Remove previous Forgejo dump archive from container
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - --user
+          - git
+          - forgejo_forgejo
+          - rm
+          - -f
+          - /tmp/forgejo-dump.zip
+
+    - name: Create native Forgejo dump archive
+      ansible.builtin.shell: >-
+        docker exec --user git forgejo_forgejo bash --noprofile --norc -lc
+        'forgejo dump -c /data/gitea/conf/app.ini -w /data -f /tmp/forgejo-dump.zip -t /tmp'
+
+    - name: Copy Forgejo dump archive from container
+      ansible.builtin.command:
+        argv:
+          - docker
+          - cp
+          - forgejo_forgejo:/tmp/forgejo-dump.zip
+          - "{{ forgejo_backup_run_path }}/forgejo-dump.zip"
+
+    - name: Read Forgejo dump archive size
+      ansible.builtin.stat:
+        path: "{{ forgejo_backup_run_path }}/forgejo-dump.zip"
+      register: forgejo_dump_archive
+
+    - name: Assert Forgejo dump archive is large enough
+      ansible.builtin.assert:
+        that:
+          - forgejo_dump_archive.stat.exists
+          - forgejo_dump_archive.stat.size | int >= FORGEJO_BACKUP_MIN_SIZE_BYTES | int
+        fail_msg: >-
+          Forgejo dump archive is smaller than expected:
+          {{ forgejo_dump_archive.stat.size | default(0) }} bytes <
+          {{ FORGEJO_BACKUP_MIN_SIZE_BYTES }} bytes.
+
+    - name: Remove temporary Forgejo dump archive from container
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - --user
+          - git
+          - forgejo_forgejo
+          - rm
+          - -f
+          - /tmp/forgejo-dump.zip
+
+    - name: Copy app.ini to backup
+      ansible.builtin.copy:
+        dest: "{{ forgejo_backup_run_path }}/app.ini"
+        mode: "0640"
+        remote_src: true
+        src: "{{ FORGEJO_DATA_PATH }}/forgejo/gitea/conf/app.ini"
+
+    - name: Clean up previous database backup directory
+      community.docker.docker_container_exec:
+        container: forgejo_db
+        command: "sh -c 'rm -rf /tmp/forgejo-backup'"
+
+    - name: Backup database using mariadb-backup
+      community.docker.docker_container_exec:
+        container: forgejo_db
+        command: "sh -c 'mariadb-backup --user={{ FORGEJO_MYSQL_ROOT_USER }} --password={{ FORGEJO_MYSQL_ROOT_PASSWORD }} --backup --target-dir=/tmp/forgejo-backup --databases=forgejo'"
+
+    - name: Copy database backup from container
+      ansible.builtin.command:
+        argv:
+          - docker
+          - cp
+          - forgejo_db:/tmp/forgejo-backup
+          - "{{ forgejo_backup_run_path }}/mariabackup"
+
+    - name: List existing backup directories
+      ansible.builtin.find:
+        paths: "{{ FORGEJO_BACKUP_PATH }}"
+        file_type: directory
+        recurse: false
+      register: forgejo_backup_directories
+
+    - name: Remove old backup directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: >-
+        {{
+          (forgejo_backup_directories.files | sort(attribute='mtime', reverse=true))
+          [FORGEJO_BACKUP_RETENTION_DAYS | int:]
+        }}
+      when: forgejo_backup_directories.matched | int > FORGEJO_BACKUP_RETENTION_DAYS | int

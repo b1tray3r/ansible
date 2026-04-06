@@ -34,9 +34,9 @@ SSH_CREATE_AUTHORIZED_KEYS_FILE = true
 PATH = /data/gitea/gitea.db
 DB_TYPE = mysql
 HOST = db:3306
-NAME = forgejo
-USER = forgejo
-PASSWD = forgejo
+NAME = {{ FORGEJO_MYSQL_DATABASE }}
+USER = {{ FORGEJO_MYSQL_USER }}
+PASSWD = {{ FORGEJO_MYSQL_PASSWORD }}
 LOG_SQL = false
 
 [indexer]
