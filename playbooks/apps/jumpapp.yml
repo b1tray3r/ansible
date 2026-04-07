@@ -1,0 +1,34 @@
+---
+- name: Install Jumpapp
+  hosts: workstation_group
+  tasks:
+    - name: Resolve target version
+      include_tasks: utils/resolveReleaseVersion.yml
+      vars:
+        requested_version: "{{ jumpapp_version }}"
+        release_repo_owner: "mkropat"
+        release_repo_name: "jumpapp"
+    
+    - name: Determine update requirement
+      include_tasks: utils/dpkgNeedsUpdate.yml
+      vars:
+        dpkg_package_name: "jumpapp"
+        dpkg_target_version: "{{ target_version }}"
+    
+    - name: Install or update Jumpapp
+      block:
+        - name: Download package
+          ansible.builtin.get_url:
+            url: "{{ jumpapp_github_release_url }}/{{ effective_release_version }}/jumpapp_{{ target_version }}-{{ jumpapp_package_revision }}_all.deb"
+            dest: "/tmp/jumpapp_{{ target_version }}-{{ jumpapp_package_revision }}_all.deb"
+            force: true
+          changed_when: false
+    
+        - name: Install from downloaded file
+          include_tasks:
+            file: utils/installFromFile.yml
+            apply:
+              become: true
+          vars:
+            download_target_file: "/tmp/jumpapp_{{ target_version }}-{{ jumpapp_package_revision }}_all.deb"
+      when: needs_update

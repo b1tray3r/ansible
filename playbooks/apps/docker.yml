@@ -3,6 +3,7 @@
 - name: Install Docker and Docker Compose
   hosts: docker_group
   gather_facts: true
+  become: true
 
   handlers:
     - name: restart docker

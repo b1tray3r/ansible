@@ -1,7 +1,6 @@
 ---
 - name: Install DBeaver Community Edition
   hosts: workstation_group
-  become: true
   tasks:
     - name: Resolve target version
       include_tasks: utils/resolveReleaseVersion.yml
@@ -27,7 +26,10 @@
           changed_when: false
 
         - name: Install from downloaded file
-          include_tasks: utils/installFromFile.yml
+          include_tasks:
+            file: utils/installFromFile.yml
+            apply:
+              become: true
           vars:
             download_target_file: "/tmp/dbeaver-ce-{{ effective_release_version }}-linux-x86_64.deb"
       when: needs_update

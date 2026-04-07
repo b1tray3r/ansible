@@ -1,7 +1,6 @@
 ---
 - name: Install Zed
   hosts: workstation_group
-  become: true
 
   tasks:
     - name: Resolve target version
@@ -57,7 +56,10 @@
           changed_when: false
 
         - name: Install from downloaded file
-          include_tasks: utils/installFromFile.yml
+          include_tasks:
+            file: utils/installFromFile.yml
+            apply:
+              become: true
           vars:
             download_target_file: "/tmp/zed-linux-x86_64.tar.gz"
             install_path: "{{ zed_install_path }}"
@@ -69,6 +71,7 @@
       when: needs_update
 
     - name: Add zed to PATH via symlink
+      become: true
       ansible.builtin.file:
         src: "{{ zed_install_path }}zed.app/bin/zed"
         dest: "/usr/local/bin/zed"

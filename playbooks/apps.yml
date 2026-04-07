@@ -1,0 +1,25 @@
+---
+
+- name: Install jumpapp
+  import_playbook: apps/jumpapp.yml
+
+- name: Install Bruno
+  import_playbook: apps/bruno.yml
+
+- name: Install DBeaver
+  import_playbook: apps/dbeaver.yml
+
+- name: Install Discord
+  import_playbook: apps/discord.yml
+
+- name: Install Docker
+  import_playbook: apps/docker.yml
+
+- name: Install Golang
+  import_playbook: apps/golang.yml
+
+- name: Install LazyGit
+  import_playbook: apps/lazygit.yml
+
+- name: Install Zed
+  import_playbook: apps/zed.yml

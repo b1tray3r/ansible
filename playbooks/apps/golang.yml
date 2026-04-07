@@ -1,7 +1,6 @@
 ---
 - name: Install Discord
   hosts: workstation_group
-  become: true
   tasks:
     - name: check for latest Go version
       ansible.builtin.uri:
@@ -28,11 +27,13 @@
         go_installation_path_query.stdout != "/usr/local/go/bin/go"
       block:
         - name: remove old golang installation
+          become: true
           ansible.builtin.apt:
             name: golang
             state: absent
         
         - name: remove old golang binaries
+          become: true
           ansible.builtin.file:
             path: "{{ go_installation_path_query.stdout | trim }}"
             state: absent
@@ -56,11 +57,13 @@
         (golang_version_query.stdout | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+') | default('')) != golang_latest_version
       block:
         - name: remove old golang installation
+          become: true
           ansible.builtin.apt:
             name: golang
             state: absent
         
         - name: remove old golang binaries
+          become: true
           ansible.builtin.file:
             path: /usr/local/go
             state: absent
@@ -73,6 +76,7 @@
             force: true
           
         - name: extract golang tarball
+          become: true
           ansible.builtin.unarchive:
             src: "/tmp/go{{ golang_latest_version }}.linux-amd64.tar.gz"
             dest: /usr/local
@@ -87,6 +91,7 @@
             create: yes
             
         - name: remove downloaded tarball
+          become: true
           ansible.builtin.file:
             path: "/tmp/go{{ golang_latest_version }}.linux-amd64.tar.gz"
             state: absent

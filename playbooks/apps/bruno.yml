@@ -1,7 +1,6 @@
 ---
 - name: Install Bruno Community Edition
   hosts: workstation_group
-  become: true
   tasks:
     - name: Resolve target version
       include_tasks: utils/resolveReleaseVersion.yml
@@ -26,7 +25,10 @@
           changed_when: false
 
         - name: Install from downloaded file
-          include_tasks: utils/installFromFile.yml
+          include_tasks:
+            file: utils/installFromFile.yml
+            apply:
+              become: true
           vars:
             download_target_file: "/tmp/Bruno_{{ target_version }}_amd64_linux.deb"
       when: needs_update

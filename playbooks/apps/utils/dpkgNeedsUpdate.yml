@@ -1,5 +1,6 @@
 ---
 - name: Query installed version
+  become: false
   ansible.builtin.command:
     argv:
       - dpkg-query
@@ -11,18 +12,22 @@
   changed_when: false
 
 - name: Set installed raw version
+  become: false
   ansible.builtin.set_fact:
     installed_version_raw: "{{ dpkg_installed_query.stdout | default('') | trim }}"
 
 - name: Normalize installed version
+  become: false
   ansible.builtin.set_fact:
     installed_version: "{{ installed_version_raw | regex_replace('-[^-]+$', '') }}"
 
 - name: Set default update flag
+  become: false
   ansible.builtin.set_fact:
     needs_update: "{{ dpkg_installed_query.rc != 0 }}"
 
 - name: Determine if update is needed
+  become: false
   block:
     - name: Compare installed version with target
       ansible.builtin.command:

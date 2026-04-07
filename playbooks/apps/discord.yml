@@ -1,7 +1,6 @@
 ---
 - name: Install Discord
   hosts: workstation_group
-  become: true
   tasks:
     - name: Probe download redirect (no download)
       ansible.builtin.uri:
@@ -69,7 +68,10 @@
       when: needs_update
 
     - name: Install from downloaded file
-      include_tasks: utils/installFromFile.yml
+      include_tasks:
+        file: utils/installFromFile.yml
+        apply:
+          become: true
       vars:
         download_target_file: "{{ discord_deb_path }}"
       when: needs_update

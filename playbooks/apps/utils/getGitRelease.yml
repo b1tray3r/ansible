@@ -1,5 +1,6 @@
 ---
 - name: Fetch latest release tag
+  become: false
   ansible.builtin.uri:
     url: "https://api.github.com/repos/{{ repo_owner }}/{{ repo_name }}/releases/latest"
     return_content: true
@@ -7,5 +8,6 @@
   changed_when: false
 
 - name: Set release version
+  become: false
   ansible.builtin.set_fact:
     release_version: "{{ api_response.json.tag_name }}"

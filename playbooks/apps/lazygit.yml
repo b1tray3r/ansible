@@ -39,7 +39,10 @@
           changed_when: false
 
         - name: Install from downloaded file
-          include_tasks: utils/installFromFile.yml
+          include_tasks:
+            file: utils/installFromFile.yml
+            apply:
+              become: true
           vars:
             download_target_file: "/tmp/lazygit_{{ target_version }}_linux_x86_64.tar.gz"
             install_path: "{{ lazygit_install_path }}"
