@@ -5,7 +5,14 @@
   gather_facts: true
   vars:
     forgejo_backup_run_path: "{{ FORGEJO_BACKUP_PATH }}/{{ ansible_facts['date_time']['iso8601'] }}"
+    forgejo_backup_archive_path: "{{ FORGEJO_BACKUP_PATH }}/forgejo-backup-{{ ansible_facts['date_time']['iso8601'] }}.tar.gz"
   tasks:
+    - name: Ensure backup root directory exists
+      ansible.builtin.file:
+        mode: "0750"
+        path: "{{ FORGEJO_BACKUP_PATH }}"
+        state: directory
+
     - name: Create backup directory
       ansible.builtin.file:
         mode: "0750"
@@ -71,38 +78,69 @@
         remote_src: true
         src: "{{ FORGEJO_DATA_PATH }}/forgejo/gitea/conf/app.ini"
 
-    - name: Clean up previous database backup directory
+    - name: Remove previous SQL dump from container
       community.docker.docker_container_exec:
         container: forgejo_db
-        command: "sh -c 'rm -rf /tmp/forgejo-backup'"
+        command: "sh -c 'rm -f /tmp/forgejo-db.sql'"
 
-    - name: Backup database using mariadb-backup
+    - name: Create SQL dump in database container
       community.docker.docker_container_exec:
         container: forgejo_db
-        command: "sh -c 'mariadb-backup --user={{ FORGEJO_MYSQL_ROOT_USER }} --password={{ FORGEJO_MYSQL_ROOT_PASSWORD }} --backup --target-dir=/tmp/forgejo-backup --databases=forgejo'"
+        command: >-
+          sh -c 'mariadb-dump
+          --user={{ FORGEJO_MYSQL_ROOT_USER }}
+          --password={{ FORGEJO_MYSQL_ROOT_PASSWORD }}
+          --single-transaction
+          --quick
+          --routines
+          --events
+          --triggers
+          forgejo > /tmp/forgejo-db.sql'
 
-    - name: Copy database backup from container
+    - name: Copy SQL dump from container
       ansible.builtin.command:
         argv:
           - docker
           - cp
-          - forgejo_db:/tmp/forgejo-backup
-          - "{{ forgejo_backup_run_path }}/mariabackup"
+          - forgejo_db:/tmp/forgejo-db.sql
+          - "{{ forgejo_backup_run_path }}/forgejo-db.sql"
 
-    - name: List existing backup directories
+    - name: Remove SQL dump from container
+      community.docker.docker_container_exec:
+        container: forgejo_db
+        command: "sh -c 'rm -f /tmp/forgejo-db.sql'"
+
+    - name: Create compressed backup archive
+      ansible.builtin.archive:
+        path:
+          - "{{ forgejo_backup_run_path }}/forgejo-dump.zip"
+          - "{{ forgejo_backup_run_path }}/app.ini"
+          - "{{ forgejo_backup_run_path }}/forgejo-db.sql"
+        dest: "{{ forgejo_backup_archive_path }}"
+        format: gz
+        remove: true
+
+    - name: Remove temporary backup directory
+      ansible.builtin.file:
+        path: "{{ forgejo_backup_run_path }}"
+        state: absent
+
+    - name: List existing backup archives
       ansible.builtin.find:
         paths: "{{ FORGEJO_BACKUP_PATH }}"
-        file_type: directory
+        patterns: "forgejo-backup-*.tar.gz"
+        file_type: file
         recurse: false
-      register: forgejo_backup_directories
+      register: forgejo_backup_archives
 
-    - name: Remove old backup directories
+    - name: Remove old backup archives
       ansible.builtin.file:
         path: "{{ item.path }}"
         state: absent
       loop: >-
-        {{
-          (forgejo_backup_directories.files | sort(attribute='mtime', reverse=true))
-          [FORGEJO_BACKUP_RETENTION_DAYS | int:]
-        }}
-      when: forgejo_backup_directories.matched | int > FORGEJO_BACKUP_RETENTION_DAYS | int
+        {{ forgejo_backup_archives.files | sort(attribute='mtime', reverse=true) }}
+      loop_control:
+        index_var: forgejo_backup_archive_index
+      when:
+        - forgejo_backup_archives.matched | int > FORGEJO_BACKUP_RETENTION_DAYS | int
+        - forgejo_backup_archive_index >= FORGEJO_BACKUP_RETENTION_DAYS | int

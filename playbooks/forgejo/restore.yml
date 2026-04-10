@@ -6,20 +6,20 @@
   vars:
     FORGEJO_RESTORE_TMP: /root/forgejo-restore
   tasks:
-    - name: Select backup directory to restore
+    - name: Select backup archive to restore
       ansible.builtin.shell: >-
-        if [ -n "{{ lookup('ansible.builtin.vars', 'FORGEJO_RESTORE_BACKUP_PATH', default='') }}" ]; then
-          printf '%s' "{{ lookup('ansible.builtin.vars', 'FORGEJO_RESTORE_BACKUP_PATH', default='') }}";
+        if [ -n "{{ FORGEJO_RESTORE_BACKUP_FILE | default('') }}" ]; then
+          printf '%s' "{{ FORGEJO_BACKUP_PATH }}/{{ FORGEJO_RESTORE_BACKUP_FILE }}";
         else
-          ls -1dt {{ FORGEJO_BACKUP_PATH }}/* | head -n 1;
+          ls -1t {{ FORGEJO_BACKUP_PATH }}/forgejo-backup-*.tar.gz | head -n 1;
         fi
-      register: forgejo_restore_backup_path_cmd
+      register: forgejo_restore_backup_archive_path_cmd
       changed_when: false
-      failed_when: forgejo_restore_backup_path_cmd.stdout | trim == ''
+      failed_when: forgejo_restore_backup_archive_path_cmd.stdout | trim == ''
 
-    - name: Store selected backup directory
+    - name: Store selected backup archive path
       ansible.builtin.set_fact:
-        forgejo_restore_backup_path: "{{ forgejo_restore_backup_path_cmd.stdout | trim }}"
+        forgejo_restore_backup_archive_path: "{{ forgejo_restore_backup_archive_path_cmd.stdout | trim }}"
 
     - name: Stop forgejo stack
       community.docker.docker_compose_v2:
@@ -38,9 +38,15 @@
         state: directory
         mode: "0750"
 
+    - name: Extract compressed backup archive
+      ansible.builtin.unarchive:
+        src: "{{ forgejo_restore_backup_archive_path }}"
+        dest: "{{ FORGEJO_RESTORE_TMP }}"
+        remote_src: true
+
     - name: Extract Forgejo dump archive
       ansible.builtin.unarchive:
-        src: "{{ forgejo_restore_backup_path }}/forgejo-dump.zip"
+        src: "{{ FORGEJO_RESTORE_TMP }}/forgejo-dump.zip"
         dest: "{{ FORGEJO_RESTORE_TMP }}"
         remote_src: true
 
