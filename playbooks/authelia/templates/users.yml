@@ -1,2 +1,7 @@
 users:
-  {{ AUTHELIA_USERS | to_yaml | indent(2) }}
+{% for username, user in AUTHELIA_USERS.items() %}
+  {{ username }}:
+    password: {{ user.password | string | to_json }}
+{% set user_without_password = user | dict2items | rejectattr('key', 'equalto', 'password') | items2dict %}
+{{ user_without_password | to_yaml | indent(4, true) }}
+{% endfor %}
