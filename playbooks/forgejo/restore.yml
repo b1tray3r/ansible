@@ -106,14 +106,14 @@
     - name: Recreate forgejo database
       ansible.builtin.shell: >-
         docker exec forgejo_db sh -lc
-        "mariadb -u{{ FORGEJO_MYSQL_ROOT_USER }} -p{{ FORGEJO_MYSQL_ROOT_PASSWORD }} -e \"DROP DATABASE IF EXISTS forgejo; CREATE DATABASE forgejo CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\""
+        "mariadb -u{{ FORGEJO_MYSQL_ROOT_USER }} -p{{ FORGEJO_MYSQL_ROOT_PASSWORD }} -e \"DROP DATABASE IF EXISTS {{ FORGEJO_MYSQL_DATABASE }}; CREATE DATABASE {{ FORGEJO_MYSQL_DATABASE }} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\""
 
     - name: Import forgejo SQL dump
       ansible.builtin.shell: >-
         { printf 'SET FOREIGN_KEY_CHECKS=0;\nSET UNIQUE_CHECKS=0;\n';
         cat {{ FORGEJO_RESTORE_TMP }}/forgejo-db.sql;
         printf '\nSET UNIQUE_CHECKS=1;\nSET FOREIGN_KEY_CHECKS=1;\n'; } |
-        docker exec -i forgejo_db sh -lc "mariadb --force -u{{ FORGEJO_MYSQL_ROOT_USER }} -p{{ FORGEJO_MYSQL_ROOT_PASSWORD }} forgejo"
+        docker exec -i forgejo_db sh -lc "mariadb --force -u{{ FORGEJO_MYSQL_ROOT_USER }} -p{{ FORGEJO_MYSQL_ROOT_PASSWORD }} {{ FORGEJO_MYSQL_DATABASE }}"
 
     - name: Start forgejo container
       community.docker.docker_compose_v2:

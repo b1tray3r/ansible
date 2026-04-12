@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule Forgejo backups
+
+[Timer]
+OnCalendar={{ FORGEJO_BACKUP_ON_CALENDAR | default('daily') }}
+Persistent=true
+RandomizedDelaySec={{ FORGEJO_BACKUP_RANDOMIZED_DELAY_SEC | default('300') }}
+
+[Install]
+WantedBy=timers.target

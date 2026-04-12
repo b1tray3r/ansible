@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BACKUP_ROOT="{{ FORGEJO_BACKUP_PATH }}"
+DATA_ROOT="{{ FORGEJO_DATA_PATH }}"
+MIN_SIZE_BYTES={{ FORGEJO_BACKUP_MIN_SIZE_BYTES | int }}
+RETENTION={{ FORGEJO_BACKUP_RETENTION_DAYS | int }}
+MYSQL_ROOT_USER="{{ FORGEJO_MYSQL_ROOT_USER }}"
+MYSQL_ROOT_PASSWORD="{{ FORGEJO_MYSQL_ROOT_PASSWORD }}"
+MYSQL_DATABASE="{{ FORGEJO_MYSQL_DATABASE }}"
+
+TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+RUN_DIR="${BACKUP_ROOT}/${TIMESTAMP}"
+ARCHIVE_PATH="${BACKUP_ROOT}/forgejo-backup-${TIMESTAMP}.tar.gz"
+
+mkdir -p "${BACKUP_ROOT}" "${RUN_DIR}"
+
+cleanup() {
+  docker exec --user git forgejo_forgejo rm -f /tmp/forgejo-dump.zip >/dev/null 2>&1 || true
+  docker exec forgejo_db sh -c 'rm -f /tmp/forgejo-db.sql' >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+cleanup
+
+docker exec --user git forgejo_forgejo bash --noprofile --norc -lc \
+  'forgejo dump -c /data/gitea/conf/app.ini -w /data -f /tmp/forgejo-dump.zip -t /tmp'
+
+docker cp forgejo_forgejo:/tmp/forgejo-dump.zip "${RUN_DIR}/forgejo-dump.zip"
+
+DUMP_SIZE="$(stat -c '%s' "${RUN_DIR}/forgejo-dump.zip")"
+if [[ "${DUMP_SIZE}" -lt "${MIN_SIZE_BYTES}" ]]; then
+  echo "Forgejo dump archive is smaller than expected: ${DUMP_SIZE} bytes < ${MIN_SIZE_BYTES} bytes." >&2
+  exit 1
+fi
+
+cp "${DATA_ROOT}/forgejo/gitea/conf/app.ini" "${RUN_DIR}/app.ini"
+
+docker exec forgejo_db sh -c \
+  "mariadb-dump --user=${MYSQL_ROOT_USER} --password=${MYSQL_ROOT_PASSWORD} --single-transaction --quick --routines --events --triggers ${MYSQL_DATABASE} > /tmp/forgejo-db.sql"
+
+docker cp forgejo_db:/tmp/forgejo-db.sql "${RUN_DIR}/forgejo-db.sql"
+
+tar -C "${RUN_DIR}" -czf "${ARCHIVE_PATH}" forgejo-dump.zip app.ini forgejo-db.sql
+rm -rf "${RUN_DIR}"
+
+mapfile -t OLD_ARCHIVES < <(ls -1t "${BACKUP_ROOT}"/forgejo-backup-*.tar.gz 2>/dev/null || true)
+OLD_ARCHIVES_COUNT="$(printf '%s\n' "${OLD_ARCHIVES[@]}" | sed '/^$/d' | wc -l)"
+if [[ "${OLD_ARCHIVES_COUNT}" -gt "${RETENTION}" ]]; then
+  for archive in "${OLD_ARCHIVES[@]:$RETENTION}"; do
+    rm -f "${archive}"
+  done
+fi

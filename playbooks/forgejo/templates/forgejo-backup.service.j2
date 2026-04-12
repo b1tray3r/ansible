@@ -1,0 +1,13 @@
+[Unit]
+Description=Forgejo backup job
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/forgejo-backup.sh
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

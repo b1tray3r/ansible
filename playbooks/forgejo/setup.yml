@@ -226,6 +226,44 @@
           ansible.builtin.debug:
             msg: "Forgejo initialization failed - container may not be ready yet"
 
+    - name: Install scheduled Forgejo backup job
+      block:
+        - name: Install Forgejo backup script
+          ansible.builtin.template:
+            src: "templates/backup.sh.j2"
+            dest: "/usr/local/sbin/forgejo-backup.sh"
+            owner: root
+            group: root
+            mode: "0700"
+
+        - name: Install Forgejo backup systemd service
+          ansible.builtin.template:
+            src: "templates/forgejo-backup.service.j2"
+            dest: "/etc/systemd/system/forgejo-backup.service"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Install Forgejo backup systemd timer
+          ansible.builtin.template:
+            src: "templates/forgejo-backup.timer.j2"
+            dest: "/etc/systemd/system/forgejo-backup.timer"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Reload systemd daemon
+          ansible.builtin.systemd_service:
+            daemon_reload: true
+          when: not ansible_check_mode
+
+        - name: Enable and start Forgejo backup timer
+          ansible.builtin.systemd_service:
+            name: forgejo-backup.timer
+            enabled: true
+            state: started
+          when: not ansible_check_mode
+
   handlers:
     - name: Restart forgejo stack
       community.docker.docker_compose_v2:
