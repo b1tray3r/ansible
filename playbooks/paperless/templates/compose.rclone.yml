@@ -1,0 +1,26 @@
+volumes:
+  paperless_paperless_export:
+    external: true
+
+services:
+  rclone:
+    image: rclone/rclone:latest
+    command: [
+      "sync",
+      "/data/export", "nextcloud:Documents",
+      "--config", "/config/rclone.conf",
+      "--log-level", "INFO",
+      "--checksum",
+      "--delete-during",
+      "--create-empty-src-dirs",
+      "--transfers", "1",
+      "--checkers", "1",
+      "--retries", "3",
+      "--low-level-retries", "10",
+      "--tpslimit", "1"
+    ]
+    volumes:
+      - paperless_paperless_export:/data/export
+      - "./rclone.conf:/config/rclone.conf:ro"
+    environment:
+      - PAPERLESS_SYNC_INTERVAL_SECONDS=3600

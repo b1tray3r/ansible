@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Paperless Document Export every 4 hours
+
+[Timer]
+OnBootSec=5min
+OnCalendar=*-*-* 00,04,08,12,16,20:00:00
+Persistent=true
+Unit=paperless-document-exporter.service
+
+[Install]
+WantedBy=timers.target

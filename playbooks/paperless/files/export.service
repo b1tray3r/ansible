@@ -1,0 +1,12 @@
+[Unit]
+Description=Export Paperless Documents
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/bash -c 'docker inspect paperless-webserver-1 >/dev/null 2>&1 && [ "$(docker inspect -f "{{.State.Running}}" paperless-webserver-1)" = "true" ] || exit 1'
+ExecStart=/bin/bash -c 'docker exec paperless-webserver-1 python3 manage.py document_exporter -d -f /usr/src/paperless/export'
+
+[Install]
+WantedBy=multi-user.target   
