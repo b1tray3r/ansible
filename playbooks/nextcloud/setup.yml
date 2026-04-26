@@ -175,6 +175,33 @@
       failed_when: false
       changed_when: false
 
+    - name: Configure Elasticsearch replicas for single-node cluster
+      ansible.builtin.shell:
+        command: |
+          docker exec nextcloud_elasticsearch curl -s -XPUT 'localhost:9200/nextcloud/_settings' -H 'Content-Type: application/json' -d '{"index":{"number_of_replicas":0}}'
+      failed_when: false
+      changed_when: false
+
+    - name: Reset fulltextsearch index to clear stale file references
+      when: "nextcloud_container_id is defined and nextcloud_container_id | length | int > 0"
+      community.docker.docker_container_exec:
+        container: "{{ nextcloud_container_id }}"
+        command: "php occ fulltextsearch:reset --no-readline"
+        chdir: /var/www/html
+      register: occ_fulltextsearch_reset
+      failed_when: false
+      changed_when: true
+
+    - name: Re-index documents after fulltextsearch reset
+      when: "nextcloud_container_id is defined and nextcloud_container_id | length | int > 0"
+      community.docker.docker_container_exec:
+        container: "{{ nextcloud_container_id }}"
+        command: "php occ fulltextsearch:index --no-readline"
+        chdir: /var/www/html
+      register: occ_fulltextsearch_reindex
+      failed_when: false
+      changed_when: true
+
     - name: Notify completion
       ansible.builtin.shell:
         cmd: "curl -s --max-time 10 -u {{ NTFY_ABORGARDT_USER }}:{{ NTFY_ABORGARDT_PASSWORD }} -H 'Title: Nextcloud Setup Complete' -H 'Tags: white_check_mark' -d 'Nextcloud playbook completed successfully on {{ inventory_hostname }}' https://{{ NTFY_HOST }}/{{ NTFY_TOPIC_ANSIBLE }}"

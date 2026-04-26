@@ -136,8 +136,32 @@ services:
       sh -c "
         apk add --no-cache curl &&
         while true; do
-          curl -s -o /dev/null 'http://app/cron.php';
+          curl -s -o /dev/null -H 'Host: {{ NEXTCLOUD_DOMAIN }}' 'http://app/cron.php';
           sleep 300;
+        done
+      "
+    networks:
+      - internal
+
+  fulltext_indexer:
+    image: nextcloud:33.0.2
+    container_name: nextcloud_fulltext_indexer
+    restart: unless-stopped
+    depends_on:
+      - app
+      - elasticsearch
+      - db
+    volumes:
+      - nextcloud:/var/www/html
+      - nextcloud_data:/var/www/html/data
+    env_file:
+      - .env
+    command: >
+      sh -c "
+        interval=$${NEXTCLOUD_FTS_INDEX_INTERVAL_SECONDS:-1800};
+        while true; do
+          su -s /bin/sh -c 'php occ fulltextsearch:index --no-readline' www-data || true;
+          sleep $$interval;
         done
       "
     networks:
