@@ -60,10 +60,6 @@
         state: started
       
     - name: Notify completion
-      ansible.builtin.shell:
-        cmd: "curl -s --max-time 10 -u {{ NTFY_ABORGARDT_USER }}:{{ NTFY_ABORGARDT_PASSWORD }} -H 'Title: Paperless Setup Complete' -H 'Tags: white_check_mark' -d 'Paperless playbook completed successfully on {{ inventory_hostname }}' https://{{ NTFY_HOST }}/{{ NTFY_TOPIC_ANSIBLE }}"
-      register: ntfy_result
-      failed_when: false
-      changed_when: false
-      delegate_to: localhost
-      become: false
+      ansible.builtin.include_tasks: ../tasks/notify-ntfy.yml
+      vars:
+        notify_service: "Paperless"

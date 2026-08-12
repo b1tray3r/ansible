@@ -10,11 +10,7 @@
         mode: "0750"
 
     - name: Ensure proxy network exists
-      community.docker.docker_network:
-        name: proxy
-        driver: bridge
-        attachable: true
-        state: present
+      ansible.builtin.include_tasks: ../tasks/ensure-proxy-network.yml
 
     - name: Copy .env file
       ansible.builtin.template:
@@ -53,65 +49,15 @@
       ansible.builtin.set_fact:
         nextcloud_container_id: "{{ nc_container_raw.stdout_lines[0] }}"
 
-    - name: Install fulltextsearch app
+    - name: Install and enable fulltextsearch apps
       when: "nextcloud_container_id is defined and nextcloud_container_id | length | int > 0"
-      community.docker.docker_container_exec:
-        container: "{{ nextcloud_container_id }}"
-        command: "php occ app:install fulltextsearch"
-        chdir: /var/www/html
-      register: occ_install_fulltextsearch
-      failed_when: false
-      changed_when: "'installed' in occ_install_fulltextsearch.stdout or 'enabled' in occ_install_fulltextsearch.stdout"
-
-    - name: Enable fulltextsearch app
-      when: "nextcloud_container_id is defined and nextcloud_container_id | length | int > 0"
-      community.docker.docker_container_exec:
-        container: "{{ nextcloud_container_id }}"
-        command: "php occ app:enable fulltextsearch"
-        chdir: /var/www/html
-      register: occ_enable_fulltextsearch
-      failed_when: false
-      changed_when: true
-
-    - name: Install fulltextsearch_elasticsearch app
-      when: "nextcloud_container_id is defined and nextcloud_container_id | length | int > 0"
-      community.docker.docker_container_exec:
-        container: "{{ nextcloud_container_id }}"
-        command: "php occ app:install fulltextsearch_elasticsearch"
-        chdir: /var/www/html
-      register: occ_install_elasticsearch
-      failed_when: false
-      changed_when: "'installed' in occ_install_elasticsearch.stdout or 'enabled' in occ_install_elasticsearch.stdout"
-
-    - name: Enable fulltextsearch_elasticsearch app
-      when: "nextcloud_container_id is defined and nextcloud_container_id | length | int > 0"
-      community.docker.docker_container_exec:
-        container: "{{ nextcloud_container_id }}"
-        command: "php occ app:enable fulltextsearch_elasticsearch"
-        chdir: /var/www/html
-      register: occ_enable_elasticsearch
-      failed_when: false
-      changed_when: true
-
-    - name: Install files_fulltextsearch app
-      when: "nextcloud_container_id is defined and nextcloud_container_id | length | int > 0"
-      community.docker.docker_container_exec:
-        container: "{{ nextcloud_container_id }}"
-        command: "php occ app:install files_fulltextsearch"
-        chdir: /var/www/html
-      register: occ_install_files_fulltextsearch
-      failed_when: false
-      changed_when: "'installed' in occ_install_files_fulltextsearch.stdout or 'enabled' in occ_install_files_fulltextsearch.stdout"
-
-    - name: Enable files_fulltextsearch app
-      when: "nextcloud_container_id is defined and nextcloud_container_id | length | int > 0"
-      community.docker.docker_container_exec:
-        container: "{{ nextcloud_container_id }}"
-        command: "php occ app:enable files_fulltextsearch"
-        chdir: /var/www/html
-      register: occ_enable_files_fulltextsearch
-      failed_when: false
-      changed_when: true
+      ansible.builtin.include_tasks: tasks/fulltextsearch-app.yml
+      loop:
+        - fulltextsearch
+        - fulltextsearch_elasticsearch
+        - files_fulltextsearch
+      loop_control:
+        loop_var: ft_app
 
     - name: Set search platform config
       when: "nextcloud_container_id is defined and nextcloud_container_id | length | int > 0"
@@ -203,10 +149,6 @@
       changed_when: true
 
     - name: Notify completion
-      ansible.builtin.shell:
-        cmd: "curl -s --max-time 10 -u {{ NTFY_ABORGARDT_USER }}:{{ NTFY_ABORGARDT_PASSWORD }} -H 'Title: Nextcloud Setup Complete' -H 'Tags: white_check_mark' -d 'Nextcloud playbook completed successfully on {{ inventory_hostname }}' https://{{ NTFY_HOST }}/{{ NTFY_TOPIC_ANSIBLE }}"
-      register: ntfy_result
-      failed_when: false
-      changed_when: false
-      delegate_to: localhost
-      become: false
+      ansible.builtin.include_tasks: ../tasks/notify-ntfy.yml
+      vars:
+        notify_service: "Nextcloud"

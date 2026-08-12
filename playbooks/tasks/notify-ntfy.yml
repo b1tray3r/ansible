@@ -1,0 +1,9 @@
+---
+- name: Notify completion
+  ansible.builtin.shell:
+    cmd: "curl -s --max-time 10 -u {{ NTFY_ABORGARDT_USER }}:{{ NTFY_ABORGARDT_PASSWORD }} -H 'Title: {{ notify_service }} Setup Complete' -H 'Tags: white_check_mark' -d '{{ notify_service }} playbook completed successfully on {{ inventory_hostname }}' https://{{ NTFY_HOST }}/{{ NTFY_TOPIC_ANSIBLE }}"
+  register: ntfy_result
+  failed_when: false
+  changed_when: false
+  delegate_to: localhost
+  become: false

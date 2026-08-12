@@ -97,11 +97,7 @@
     - name: Deploy Forgejo stack
       block:
         - name: Ensure proxy network exists
-          community.docker.docker_network:
-            name: proxy
-            driver: bridge
-            attachable: true
-            state: present
+          ansible.builtin.include_tasks: ../tasks/ensure-proxy-network.yml
 
         - name: Ensure gitea conf directory exists
           ansible.builtin.file:
@@ -176,16 +172,6 @@
               until: db_resolve_result.rc == 0
               retries: 30
               delay: 2
-
-            - name: Wait for database port to be accessible
-              community.docker.docker_container_exec:
-                container: "{{ forgejo_container }}"
-                command: "/bin/sh -c 'timeout 5 bash -c \"</dev/tcp/db/3306\" 2>/dev/null || nc -zv db 3306 2>&1 || telnet db 3306 2>&1 | grep -q Connected'"
-              register: db_port_result
-              until: db_port_result.rc == 0
-              retries: 30
-              delay: 2
-              ignore_errors: yes
 
             - name: Run gitea migrate
               community.docker.docker_container_exec:

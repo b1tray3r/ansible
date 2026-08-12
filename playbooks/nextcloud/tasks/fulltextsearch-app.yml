@@ -1,0 +1,17 @@
+---
+- name: "Install {{ ft_app }} app"
+  community.docker.docker_container_exec:
+    container: "{{ nextcloud_container_id }}"
+    command: "php occ app:install {{ ft_app }}"
+    chdir: /var/www/html
+  register: occ_install
+  failed_when: false
+  changed_when: "'installed' in occ_install.stdout or 'enabled' in occ_install.stdout"
+
+- name: "Enable {{ ft_app }} app"
+  community.docker.docker_container_exec:
+    container: "{{ nextcloud_container_id }}"
+    command: "php occ app:enable {{ ft_app }}"
+    chdir: /var/www/html
+  register: occ_enable
+  changed_when: true
