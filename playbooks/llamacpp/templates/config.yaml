@@ -1,0 +1,18 @@
+# ponytail: 1800s covers a cold HF download on first load; once GGUFs
+# are cached on disk, startup is seconds. Raise per-model if a bigger
+# quant gets added and cold-start still times out.
+healthCheckTimeout: {{ LLAMACPP_HEALTH_CHECK_TIMEOUT | default(1800) }}
+
+models:
+{% for m in LLAMACPP_MODELS %}
+  "{{ m.alias }}":
+    cmd: |
+      llama-server
+      -hf {{ m.hf_repo }}:{{ m.hf_quant }}
+      --port ${PORT}
+      --host 0.0.0.0
+      --ctx-size {{ m.ctx_size | default(LLAMACPP_CTX_SIZE) }}
+      --threads {{ m.threads | default(LLAMACPP_THREADS) }}
+      --n-gpu-layers {{ m.gpu_layers | default(LLAMACPP_GPU_LAYERS) }}
+    ttl: {{ m.ttl | default(300) }}
+{% endfor %}

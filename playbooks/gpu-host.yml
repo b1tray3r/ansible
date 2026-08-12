@@ -1,0 +1,41 @@
+---
+
+- hosts: gpu_group
+  become: true
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # ponytail: R9700 is 2025 hardware; Ubuntu 24.04 GA kernel (6.8) and
+    # its pinned linux-firmware snapshot (2024-03) both predate it, so
+    # amdgpu fails to probe the card ("Fatal error during GPU init").
+    # The HWE kernel stack pulls a current kernel + matching firmware.
+    - name: Install HWE kernel stack (current kernel + firmware for new GPUs)
+      ansible.builtin.apt:
+        name: linux-generic-hwe-24.04
+        state: present
+        install_recommends: true
+      register: hwe_install
+
+    - name: Check if a reboot is required
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_required
+
+    - name: Reboot to boot into the new kernel
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+      when: hwe_install.changed or reboot_required.stat.exists
+
+    - name: Check GPU probe status after reboot
+      ansible.builtin.shell:
+        cmd: "dmesg | grep -i amdgpu | tail -10; lspci -k | grep -iA3 '\\[030[02]\\]'"
+      register: gpu_check
+      changed_when: false
+      failed_when: false
+
+    - name: Show GPU probe status
+      ansible.builtin.debug:
+        msg: "{{ gpu_check.stdout_lines }}"

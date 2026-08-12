@@ -1,0 +1,21 @@
+services:
+  llama-swap:
+    image: ghcr.io/mostlygeek/llama-swap:vulkan
+    container_name: llamacpp_router
+    restart: unless-stopped
+    ports:
+      - "{{ LLAMACPP_PORT | default(8080) }}:8080"
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "{{ LLAMACPP_RENDER_GID }}"
+      - "{{ LLAMACPP_VIDEO_GID }}"
+    volumes:
+      - "{{ LLAMACPP_DATA_PATH }}/config.yaml:/app/config.yaml:ro"
+      - "{{ LLAMACPP_DATA_PATH }}/models:/models"
+    environment:
+      # ponytail: llama.cpp's -hf downloader cache location has moved
+      # between versions (LLAMA_CACHE vs HF_HOME) — both point here so
+      # downloaded GGUFs survive container recreation either way.
+      - LLAMA_CACHE=/models
+      - HF_HOME=/models/.hf-cache

@@ -1,0 +1,47 @@
+---
+
+- hosts: llamacpp_group
+  become: true
+  tasks:
+    - name: Ensure llama.cpp data folder exists
+      ansible.builtin.file:
+        path: "{{ LLAMACPP_DATA_PATH }}"
+        state: directory
+        mode: "0750"
+
+    - name: Ensure llama.cpp model cache folder exists
+      ansible.builtin.file:
+        path: "{{ LLAMACPP_DATA_PATH }}/models"
+        state: directory
+        mode: "0750"
+
+    - name: Copy llama-swap model presets config
+      ansible.builtin.template:
+        src: templates/config.yaml
+        dest: "{{ LLAMACPP_DATA_PATH }}/config.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart llama-swap
+
+    - name: Copy compose file
+      ansible.builtin.template:
+        src: templates/compose.yml
+        dest: "{{ LLAMACPP_DATA_PATH }}/compose.yml"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart llama-swap
+
+    - name: Start llama-swap stack
+      community.docker.docker_compose_v2:
+        project_name: llamacpp
+        project_src: "{{ LLAMACPP_DATA_PATH }}"
+        state: present
+
+  handlers:
+    - name: restart llama-swap
+      community.docker.docker_compose_v2:
+        project_name: llamacpp
+        project_src: "{{ LLAMACPP_DATA_PATH }}"
+        state: restarted
