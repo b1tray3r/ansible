@@ -1,0 +1,12 @@
+[Unit]
+Description=Hermes Agent messaging gateway (Telegram)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/hermes gateway start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

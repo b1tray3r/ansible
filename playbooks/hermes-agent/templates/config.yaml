@@ -1,0 +1,20 @@
+model:
+  provider: "custom"
+  base_url: "{{ HERMES_AGENT_BASE_URL | default('http://localhost:8080/v1') }}"
+  model: "{{ HERMES_AGENT_MODEL | default('glimmer30b') }}"
+
+terminal:
+  backend: local
+  timeout: 180
+  home_mode: auto
+
+gateway:
+  host: "127.0.0.1"
+  port: 8000
+  # ponytail: docs only confirm this shape via the Discord example
+  # ("platforms: discord: enabled: true"), not a Telegram-specific one —
+  # if the gateway doesn't pick Telegram up on its own, run
+  # `hermes gateway setup` once interactively to confirm/fix the schema.
+  platforms:
+    telegram:
+      enabled: true

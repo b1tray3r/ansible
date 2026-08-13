@@ -8,7 +8,7 @@ models:
   "{{ m.alias }}":
     cmd: |
       llama-server
-      -hf {{ m.hf_repo }}:{{ m.hf_quant }}
+      {{ ('-m /models/gguf/' + m.file) if m.file is defined else ('-hf ' + m.hf_repo + ':' + m.hf_quant) }}
       --port ${PORT}
       --host 0.0.0.0
       --ctx-size {{ m.ctx_size | default(LLAMACPP_CTX_SIZE) }}

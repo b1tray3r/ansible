@@ -1,0 +1,83 @@
+---
+
+# Nous Research's Hermes Agent (https://hermes-agent.nousresearch.com), talking
+# to the local llama-swap router and exposed via the Telegram messaging gateway.
+# Runs as a systemd --user service under the connecting (non-root) user, since
+# that's how the tool expects to live — ~/.hermes for config, ~/.local/bin for
+# the binary. `loginctl enable-linger` makes it start at boot without a login.
+
+- hosts: hermes_agent_group
+  tasks:
+    - name: Ensure system packages Hermes Agent's installer needs
+      become: true
+      ansible.builtin.apt:
+        name:
+          - curl
+          - xz-utils
+        state: present
+
+    - name: Enable lingering so the user service survives logout/boot
+      become: true
+      ansible.builtin.command:
+        cmd: "loginctl enable-linger {{ ansible_user }}"
+      register: linger
+      changed_when: "'Linger=yes' not in linger_check.stdout"
+      vars:
+        linger_check: "{{ lookup('ansible.builtin.pipe', 'loginctl show-user ' + ansible_user + ' -p Linger') }}"
+
+    - name: Install Hermes Agent
+      ansible.builtin.shell:
+        cmd: "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"
+        creates: "{{ ansible_env.HOME }}/.local/bin/hermes"
+
+    - name: Ensure ~/.hermes exists
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.hermes"
+        state: directory
+        mode: "0700"
+
+    - name: Template config.yaml (model provider, gateway, terminal backend)
+      ansible.builtin.template:
+        src: templates/config.yaml
+        dest: "{{ ansible_env.HOME }}/.hermes/config.yaml"
+        mode: "0600"
+      notify: restart hermes gateway
+
+    - name: Template .env (Telegram bot secrets)
+      ansible.builtin.template:
+        src: templates/env
+        dest: "{{ ansible_env.HOME }}/.hermes/.env"
+        mode: "0600"
+      notify: restart hermes gateway
+
+    - name: Ensure ~/.config/systemd/user exists
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.config/systemd/user"
+        state: directory
+        mode: "0755"
+
+    - name: Install systemd --user unit
+      ansible.builtin.template:
+        src: templates/hermes-gateway.service
+        dest: "{{ ansible_env.HOME }}/.config/systemd/user/hermes-gateway.service"
+        mode: "0644"
+      notify: restart hermes gateway
+
+    - name: Enable and start the gateway (systemd --user)
+      ansible.builtin.systemd:
+        name: hermes-gateway.service
+        scope: user
+        daemon_reload: true
+        enabled: true
+        state: started
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid | default(1000) }}"
+
+  handlers:
+    - name: restart hermes gateway
+      ansible.builtin.systemd:
+        name: hermes-gateway.service
+        scope: user
+        state: restarted
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid | default(1000) }}"

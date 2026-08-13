@@ -39,3 +39,33 @@
     - name: Show GPU probe status
       ansible.builtin.debug:
         msg: "{{ gpu_check.stdout_lines }}"
+
+    # ponytail: /dev/dri/card* and renderD* are group video/render —
+    # without membership the connecting user can't open the device at all
+    # (nvtop, vulkaninfo, etc. silently show no GPU rather than erroring).
+    - name: Add connecting user to video/render groups (GPU device access)
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: video,render
+        append: true
+
+    # ponytail: default runpm=auto lets the card idle into BACO suspend,
+    # which makes gpu_busy_percent (and anything polling it, incl. nvtop)
+    # return EBUSY until something wakes it. Worked out of the box on
+    # Pop!_OS (different runpm default); disabling it here matches that.
+    - name: Disable amdgpu runtime power management
+      ansible.builtin.copy:
+        content: "options amdgpu runpm=0\n"
+        dest: /etc/modprobe.d/amdgpu-no-runpm.conf
+        mode: "0644"
+      register: runpm_conf
+
+    - name: Rebuild initramfs if runpm setting changed
+      ansible.builtin.command: update-initramfs -u
+      when: runpm_conf.changed
+
+    - name: Force GPU power control to "on" now (no reboot needed)
+      ansible.builtin.shell:
+        cmd: "echo on > /sys/bus/pci/devices/0000:03:00.0/power/control"
+      changed_when: false
+      failed_when: false
