@@ -7,6 +7,7 @@
 # the binary. `loginctl enable-linger` makes it start at boot without a login.
 
 - hosts: hermes_agent_group
+  gather_facts: true # need ansible_env.HOME below; ansible.cfg sets gathering=explicit
   tasks:
     - name: Ensure system packages Hermes Agent's installer needs
       become: true
@@ -16,14 +17,17 @@
           - xz-utils
         state: present
 
+    - name: Check current lingering state
+      ansible.builtin.command:
+        cmd: "loginctl show-user {{ ansible_user }} -p Linger"
+      register: linger_check
+      changed_when: false
+
     - name: Enable lingering so the user service survives logout/boot
       become: true
       ansible.builtin.command:
         cmd: "loginctl enable-linger {{ ansible_user }}"
-      register: linger
-      changed_when: "'Linger=yes' not in linger_check.stdout"
-      vars:
-        linger_check: "{{ lookup('ansible.builtin.pipe', 'loginctl show-user ' + ansible_user + ' -p Linger') }}"
+      when: "'Linger=yes' not in linger_check.stdout"
 
     - name: Install Hermes Agent
       ansible.builtin.shell:

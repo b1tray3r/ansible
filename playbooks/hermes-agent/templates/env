@@ -1,2 +1,8 @@
 TELEGRAM_BOT_TOKEN={{ HERMES_TELEGRAM_BOT_TOKEN }}
 TELEGRAM_ALLOWED_USERS={{ HERMES_TELEGRAM_ALLOWED_USERS }}
+# ponytail: hermes-agent's DNS-over-HTTPS fallback-IP discovery has a real
+# bug in its own error path ("Any cannot be instantiated" — a typing.Any
+# placeholder gets instantiated when DoH discovery fails/races). Our network
+# resolves api.telegram.org and connects directly without issue, so skip
+# that path entirely rather than depend on an upstream fix.
+HERMES_TELEGRAM_DISABLE_FALLBACK_IPS=1
