@@ -6,3 +6,8 @@ TELEGRAM_ALLOWED_USERS={{ HERMES_TELEGRAM_ALLOWED_USERS }}
 # resolves api.telegram.org and connects directly without issue, so skip
 # that path entirely rather than depend on an upstream fix.
 HERMES_TELEGRAM_DISABLE_FALLBACK_IPS=1
+
+# Dashboard basic-auth (required for the non-loopback bind on :9119 below)
+HERMES_DASHBOARD_BASIC_AUTH_USERNAME={{ HERMES_DASHBOARD_USERNAME }}
+HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH={{ HERMES_DASHBOARD_PASSWORD_HASH }}
+HERMES_DASHBOARD_BASIC_AUTH_SECRET={{ HERMES_DASHBOARD_SECRET }}

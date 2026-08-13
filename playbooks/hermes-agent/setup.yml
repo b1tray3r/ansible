@@ -45,14 +45,18 @@
         src: templates/config.yaml
         dest: "{{ ansible_env.HOME }}/.hermes/config.yaml"
         mode: "0600"
-      notify: restart hermes gateway
+      notify:
+        - restart hermes gateway
+        - restart hermes dashboard
 
-    - name: Template .env (Telegram bot secrets)
+    - name: Template .env (Telegram bot + dashboard auth secrets)
       ansible.builtin.template:
         src: templates/env
         dest: "{{ ansible_env.HOME }}/.hermes/.env"
         mode: "0600"
-      notify: restart hermes gateway
+      notify:
+        - restart hermes gateway
+        - restart hermes dashboard
 
     - name: Ensure ~/.config/systemd/user exists
       ansible.builtin.file:
@@ -60,12 +64,19 @@
         state: directory
         mode: "0755"
 
-    - name: Install systemd --user unit
+    - name: Install gateway systemd --user unit
       ansible.builtin.template:
         src: templates/hermes-gateway.service
         dest: "{{ ansible_env.HOME }}/.config/systemd/user/hermes-gateway.service"
         mode: "0644"
       notify: restart hermes gateway
+
+    - name: Install dashboard systemd --user unit
+      ansible.builtin.template:
+        src: templates/hermes-dashboard.service
+        dest: "{{ ansible_env.HOME }}/.config/systemd/user/hermes-dashboard.service"
+        mode: "0644"
+      notify: restart hermes dashboard
 
     - name: Enable and start the gateway (systemd --user)
       ansible.builtin.systemd:
@@ -77,10 +88,28 @@
       environment:
         XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid | default(1000) }}"
 
+    - name: Enable and start the dashboard (systemd --user)
+      ansible.builtin.systemd:
+        name: hermes-dashboard.service
+        scope: user
+        daemon_reload: true
+        enabled: true
+        state: started
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid | default(1000) }}"
+
   handlers:
     - name: restart hermes gateway
       ansible.builtin.systemd:
         name: hermes-gateway.service
+        scope: user
+        state: restarted
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid | default(1000) }}"
+
+    - name: restart hermes dashboard
+      ansible.builtin.systemd:
+        name: hermes-dashboard.service
         scope: user
         state: restarted
       environment:

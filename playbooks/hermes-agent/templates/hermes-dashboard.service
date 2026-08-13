@@ -1,0 +1,12 @@
+[Unit]
+Description=Hermes Agent web dashboard
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/hermes dashboard --host 0.0.0.0 --port {{ HERMES_DASHBOARD_PORT | default(9119) }} --no-open --skip-build
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
