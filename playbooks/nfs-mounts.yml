@@ -1,0 +1,38 @@
+---
+
+# NFS client mounts, matching what's manually set up on lenovo-yoga-7-15itl5
+# (never ansible-managed there — this codifies it for new hosts going forward).
+
+- hosts: nfs_client_group
+  become: true
+  vars:
+    NFS_SERVER: "172.25.0.111" # homelab
+    NFS_SHARES:
+      - "2tb1"
+      - "4tb1"
+      - "4tb2"
+      - "8tb1"
+      - "8tb2"
+  tasks:
+    - name: Ensure nfs-common is installed
+      ansible.builtin.apt:
+        name: nfs-common
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Ensure mount point directories exist
+      ansible.builtin.file:
+        path: "/media/nfs/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop: "{{ NFS_SHARES }}"
+
+    - name: Mount NFS shares and persist in fstab
+      ansible.posix.mount:
+        src: "{{ NFS_SERVER }}:/media/{{ item }}"
+        path: "/media/nfs/{{ item }}"
+        fstype: nfs
+        opts: "defaults,rsize=8192,wsize=8192,timeo=14,intr,nofail"
+        state: mounted
+      loop: "{{ NFS_SHARES }}"
