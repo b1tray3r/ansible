@@ -132,6 +132,15 @@
             group: root
             mode: 0644
 
+        - name: Check for existing backup script
+          ansible.builtin.stat:
+            path: /usr/local/sbin/forgejo-backup.sh
+          register: backup_script
+
+        - name: Back up Forgejo before redeploy
+          ansible.builtin.command: /usr/local/sbin/forgejo-backup.sh
+          when: backup_script.stat.exists and not ansible_check_mode
+
         - name: Remove existing forgejo stack
           community.docker.docker_compose_v2:
             project_src: "{{ FORGEJO_DATA_PATH }}"

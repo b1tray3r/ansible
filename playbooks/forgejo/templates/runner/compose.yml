@@ -10,7 +10,7 @@ services:
       - runner-network
 
   runner:
-    image: 'code.forgejo.org/forgejo/runner:5.0.0'
+    image: 'code.forgejo.org/forgejo/runner:13.2.0'
     depends_on:
       - docker-in-docker
     container_name: runner
