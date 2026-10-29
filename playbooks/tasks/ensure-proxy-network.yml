@@ -1,7 +1,0 @@
----
-- name: Ensure proxy network exists
-  community.docker.docker_network:
-    name: proxy
-    driver: bridge
-    attachable: true
-    state: present

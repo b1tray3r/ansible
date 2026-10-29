@@ -1,3 +1,0 @@
-[submodule "inventories"]
-	path = inventories
-	url = ssh://git@git.borgardt.me/aborgardt/ansible-inventories.git
